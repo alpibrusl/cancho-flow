@@ -1,0 +1,161 @@
+edition 5;
+
+module flow.files;
+
+// Declared files (docs/design.md D6): the comma lists of --in and --out, one declared path checked as `toolbox.path` checks an operand and
+// hashed beneath the root, and the program's own file. Shared by `flow` (which records them) and `flow-records` (which checks them).
+
+import std.buffer;
+import std.bytes;
+import toolbox.atomic;
+import toolbox.fail;
+import toolbox.path;
+import toolbox.place;
+import toolbox.text;
+import flow.config;
+
+// ---- comma lists ---------------------------------------------------------
+
+// How many elements a comma list has: none for the empty list.
+pub fn elements[&t](list: &t [byte]) -> [] int {
+    if len(list) == 0 {
+        return 0;
+    }
+    var n = 1;
+    var i = 0;
+    while i < len(list) {
+        if int_of(list[i]) == ',' {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// Element `k` (from 0) of a comma list.
+pub fn element[&t](list: &t [byte], k: int) -> [] &t [byte] {
+    var seen = 0;
+    var from = 0;
+    var i = 0;
+    while i < len(list) {
+        if int_of(list[i]) == ',' {
+            if seen == k {
+                return list[from..i];
+            }
+            seen = seen + 1;
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    return list[from..len(list)];
+}
+
+// ---- one declared file ---------------------------------------------------
+
+// What `declare` found: the path as the record writes it (normal form, relative to --root), the file's SHA-256 and size, and the errno of
+// opening or reading it (0 for none; -1 when the path itself was refused, which is already in the errors).
+pub res struct Declared {
+    rel: buffer.Buffer,
+    hex: buffer.Buffer,
+    size: int,
+    errno: int,
+}
+
+pub fn undeclared[&h](heap: &!h Heap, errno: int) -> [heap] Declared {
+    return Declared { rel: buffer.empty(heap, 1), hex: buffer.empty(heap, 1), size: 0, errno: errno };
+}
+
+pub fn drop_declared[&h](heap: &!h Heap, d: Declared) -> [heap] int {
+    let Declared { rel, hex, size, errno } = d;
+    buffer.drop(heap, rel);
+    buffer.drop(heap, hex);
+    return 0;
+}
+
+pub fn path_problem[&h, &p](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], given: &p [byte]) -> [heap] fail.Errors {
+    return fail.simple(heap, e, rule, message, hint, "path", given);
+}
+
+// Check one declared path as `toolbox.path` checks an operand (not empty, short, no `..`, not absolute), take its normal form, and
+// (when `hash`) open it beneath the root and hash it. A refused path answers errno -1 and an error.
+pub fn declare[&h, &f, &r, &p](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], given: &p [byte], hash: bool, errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (Declared, fail.Errors) {
+    var e = errs;
+    if len(given) == 0 {
+        e = path_problem(heap, e, "path.empty", "a declared path is empty", "name a file; an empty element of the list names nothing", given);
+        return (undeclared(heap, 0 - 1), e);
+    }
+    if len(given) > path.longest() {
+        e = path_problem(heap, e, "path.too-long", "a declared path is longer than 4096 bytes", "use a path of at most 4096 bytes", given);
+        return (undeclared(heap, 0 - 1), e);
+    }
+    if !text.is_utf8(given) {
+        e = path_problem(heap, e, "flow.args.not-utf8", "a declared path is not UTF-8", "a record holds only text; rename the file", given);
+        return (undeclared(heap, 0 - 1), e);
+    }
+    if path.has_dotdot(given) {
+        e = path_problem(heap, e, "path.dotdot", "a declared path has a `..` component", "name the file without `..`", given);
+        return (undeclared(heap, 0 - 1), e);
+    }
+    if int_of(given[0]) == '/' {
+        e = path_problem(heap, e, "path.absolute", "a declared path is absolute, and paths are relative to --root", "write it relative to --root", given);
+        return (undeclared(heap, 0 - 1), e);
+    }
+    let (norm, climbed) = path.lexical(heap, given);
+    var rel = norm;
+    var size_rel = 0;
+    borrow rel as &n in {
+        size_rel = buffer.size(n);
+    }
+    if size_rel == 0 {
+        rel = buffer.push(heap, rel, byte_of('.'));
+    }
+    if !hash {
+        return (Declared { rel: rel, hex: buffer.empty(heap, 1), size: 0, errno: 0 }, e);
+    }
+    var full = buffer.empty(heap, len(root) + size_rel + 2);
+    if len(root) > 0 {
+        full = buffer.append(heap, full, root);
+        if !bytes.equal(root, "/") {
+            full = buffer.push(heap, full, byte_of('/'));
+        }
+    }
+    borrow rel as &n2 in {
+        full = buffer.append(heap, full, buffer.bytes(n2));
+    }
+    var hex = buffer.empty(heap, 1);
+    var errno = 0;
+    var size = 0;
+    borrow rel as &n3 in {
+        borrow full as &fl in {
+            let (h2, e2, s2) = atomic.hash_file(heap, place.open_operand(fs, root, buffer.bytes(n3), buffer.bytes(fl)));
+            buffer.drop(heap, hex);
+            hex = h2;
+            errno = e2;
+            size = s2;
+        }
+    }
+    buffer.drop(heap, full);
+    return (Declared { rel: rel, hex: hex, size: size, errno: errno }, e);
+}
+
+// The SHA-256 and size of the program's file, read where the program starts from (a symbolic link there is the deployer's choice, and
+// is followed).
+pub fn hash_program[&h, &f, &n](heap: &!h Heap, fs: &f Fs(""), name: &n [byte]) -> [heap, fs_read(""), file_read] (buffer.Buffer, int, int) {
+    var full = buffer.empty(heap, 64);
+    full = buffer.append(heap, full, config.programs());
+    full = buffer.push(heap, full, byte_of('/'));
+    full = buffer.append(heap, full, name);
+    var hex = buffer.empty(heap, 1);
+    var errno = 0;
+    var size = 0;
+    borrow full as &fl in {
+        let (h2, e2, s2) = atomic.hash_file(heap, open_read(fs, buffer.bytes(fl)));
+        buffer.drop(heap, hex);
+        hex = h2;
+        errno = e2;
+        size = s2;
+    }
+    buffer.drop(heap, full);
+    return (hex, errno, size);
+}
+

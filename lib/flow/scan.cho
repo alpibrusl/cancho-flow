@@ -1,0 +1,194 @@
+edition 5;
+
+module flow.scan;
+
+// Reading a record back (docs/design.md section 4, gate G2). A record has one layout, so it is read by that layout and not by a parser
+// that would forgive a variant:
+//
+//   {"schema":"flow.step.v1","id":"<64 hex>","oid":"<64 hex>","inputs":{..},"outcome":{..},"flow":"<version>","check":"<64 hex>"}\n
+//
+// `inputs` and `outcome` are found by a scanner that knows strings and escapes (an argument may contain `,"outcome":`), and the three
+// hashes are recomputed from the bytes as they stand. So a truncation, an extra byte, or any one flipped byte is refused: a byte in the
+// fixed text breaks the layout, a byte in `inputs` or `outcome` breaks the id or the oid, a byte in a hash breaks its comparison, and
+// a byte anywhere before the check breaks the check.
+
+import std.buffer;
+import std.bytes;
+import toolbox.atomic;
+import toolbox.sha;
+
+// What the reading found. `reason`: 0 a valid record, 1 the layout is not a record's, 2 the id is not the hash of `inputs`, 3 the oid is
+// not the hash of `outcome`, 4 the check is not the hash of what precedes it.
+pub struct Parts {
+    reason: int,
+    id_at: int,
+    oid_at: int,
+    inputs_a: int,
+    inputs_b: int,
+    outcome_a: int,
+    outcome_b: int,
+    flow_a: int,
+    flow_b: int,
+}
+
+fn bad(reason: int) -> [] Parts {
+    return Parts { reason: reason, id_at: 0, oid_at: 0, inputs_a: 0, inputs_b: 0, outcome_a: 0, outcome_b: 0, flow_a: 0, flow_b: 0 };
+}
+
+// The index just past the string that starts at `at` (a `"`), or -1: a control byte or the end of the text before the closing quote.
+fn skip_string[&t](t: &t [byte], at: int) -> [] int {
+    var i = at + 1;
+    while i < len(t) {
+        let c = int_of(t[i]);
+        if c == '"' {
+            return i + 1;
+        }
+        if c < 32 {
+            return 0 - 1;
+        }
+        if c == '\\' {
+            i = i + 2;
+        } else {
+            i = i + 1;
+        }
+    }
+    return 0 - 1;
+}
+
+// The index just past the object that starts at `at` (a `{`), or -1. Depth is bounded, so a hostile text cannot make this deep.
+fn skip_object[&t](t: &t [byte], at: int) -> [] int {
+    var depth = 0;
+    var i = at;
+    while i < len(t) {
+        let c = int_of(t[i]);
+        if c == '"' {
+            i = skip_string(t, i);
+            if i < 0 {
+                return 0 - 1;
+            }
+        } else {
+            if c == '{' || c == '[' {
+                depth = depth + 1;
+                if depth > 32 {
+                    return 0 - 1;
+                }
+            }
+            if c == '}' || c == ']' {
+                depth = depth - 1;
+                if depth == 0 {
+                    return i + 1;
+                }
+                if depth < 0 {
+                    return 0 - 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    return 0 - 1;
+}
+
+fn lowercase_hex[&t](t: &t [byte], a: int) -> [] bool {
+    if a + 64 > len(t) {
+        return false;
+    }
+    return sha.is_hex(t[a..a + 64], 64);
+}
+
+fn hash_equals[&h, &t](heap: &!h Heap, data: &t [byte], expected: &t [byte]) -> [heap] bool {
+    let hex = atomic.sha256_hex(heap, data);
+    var same = false;
+    borrow hex as &x in {
+        same = bytes.equal(buffer.bytes(x), expected);
+    }
+    buffer.drop(heap, hex);
+    return same;
+}
+
+// Read the record in `t`.
+pub fn parse[&h, &t](heap: &!h Heap, t: &t [byte]) -> [heap] Parts {
+    let head = "{\"schema\":\"flow.step.v1\",\"id\":\"";
+    if !bytes.starts_with(t, head) {
+        return bad(1);
+    }
+    let id_at = len(head);
+    if !lowercase_hex(t, id_at) {
+        return bad(1);
+    }
+    var at = id_at + 64;
+    let mid_oid = "\",\"oid\":\"";
+    if at + len(mid_oid) > len(t) || !bytes.equal(t[at..at + len(mid_oid)], mid_oid) {
+        return bad(1);
+    }
+    at = at + len(mid_oid);
+    let oid_at = at;
+    if !lowercase_hex(t, oid_at) {
+        return bad(1);
+    }
+    at = at + 64;
+    let mid_inputs = "\",\"inputs\":";
+    if at + len(mid_inputs) > len(t) || !bytes.equal(t[at..at + len(mid_inputs)], mid_inputs) {
+        return bad(1);
+    }
+    at = at + len(mid_inputs);
+    let inputs_a = at;
+    if at >= len(t) || int_of(t[at]) != '{' {
+        return bad(1);
+    }
+    let inputs_b = skip_object(t, at);
+    if inputs_b < 0 {
+        return bad(1);
+    }
+    at = inputs_b;
+    let mid_outcome = ",\"outcome\":";
+    if at + len(mid_outcome) > len(t) || !bytes.equal(t[at..at + len(mid_outcome)], mid_outcome) {
+        return bad(1);
+    }
+    at = at + len(mid_outcome);
+    let outcome_a = at;
+    if at >= len(t) || int_of(t[at]) != '{' {
+        return bad(1);
+    }
+    let outcome_b = skip_object(t, at);
+    if outcome_b < 0 {
+        return bad(1);
+    }
+    at = outcome_b;
+    let mid_flow = ",\"flow\":\"";
+    if at + len(mid_flow) > len(t) || !bytes.equal(t[at..at + len(mid_flow)], mid_flow) {
+        return bad(1);
+    }
+    at = at + len(mid_flow);
+    let flow_a = at;
+    while at < len(t) && int_of(t[at]) != '"' && int_of(t[at]) != '\\' && int_of(t[at]) >= 32 {
+        at = at + 1;
+    }
+    if at >= len(t) || int_of(t[at]) != '"' || at == flow_a {
+        return bad(1);
+    }
+    let flow_b = at;
+    let before_check = at + 1;
+    let mid_check = ",\"check\":\"";
+    if before_check + len(mid_check) > len(t) || !bytes.equal(t[before_check..before_check + len(mid_check)], mid_check) {
+        return bad(1);
+    }
+    let check_at = before_check + len(mid_check);
+    if !lowercase_hex(t, check_at) {
+        return bad(1);
+    }
+    let tail = "\"}\n";
+    let end = check_at + 64;
+    if end + len(tail) != len(t) || !bytes.equal(t[end..len(t)], tail) {
+        return bad(1);
+    }
+    if !hash_equals(heap, t[inputs_a..inputs_b], t[id_at..id_at + 64]) {
+        return bad(2);
+    }
+    if !hash_equals(heap, t[outcome_a..outcome_b], t[oid_at..oid_at + 64]) {
+        return bad(3);
+    }
+    if !hash_equals(heap, t[0..before_check], t[check_at..check_at + 64]) {
+        return bad(4);
+    }
+    return Parts { reason: 0, id_at: id_at, oid_at: oid_at, inputs_a: inputs_a, inputs_b: inputs_b, outcome_a: outcome_a, outcome_b: outcome_b, flow_a: flow_a, flow_b: flow_b };
+}

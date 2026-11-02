@@ -1,6 +1,6 @@
 # cancho-flow: a run is a claim you can check
 
-**Status: a design, written before any code.** The probes of section 2 were run and are recorded; nothing here is built. Tags, as in cancho-ml `docs/design.md`: **[read]** read from a document or a source file (named), **[measured]** printed by a probe run for this document (machine and conditions given), **[choice]** a decision the maintainer can overturn, **[open]** not decided or not checked. A claim found false is corrected in place, in this document, with the change that corrected it.
+**Status: M1 is built (section 13); M2 and M3 are designs.** The design was written before any code and reviewed as PR 1; the probes of section 2 were run and are recorded; section 13 says what the build confirmed and what it corrected, in place. Tags, as in cancho-ml `docs/design.md`: **[read]** read from a document or a source file (named), **[measured]** printed by a probe run for this document (machine and conditions given), **[choice]** a decision the maintainer can overturn, **[open]** not decided or not checked. A claim found false is corrected in place, in this document, with the change that corrected it.
 
 ## 0. The position
 
@@ -59,7 +59,7 @@ None of this was measured for a step that reads or writes many files, or for a c
 | D2 | which programs may start | a **name** (never a path) looked up in **one directory baked into the binary**; a deployment builds `flow` for its directory | the allow-list is then in the source and in the authority row, which a supervisor reads (section 2) |
 | D3 | what a record is | canonical JSON, one line, fixed key order, no spaces, a final newline; **no timestamp, host name, process id, absolute path or payload** (section 4) | the same rule as `ml.run.v1`; a record that is a pure function of its inputs can be compared, hashed and checked |
 | D4 | what identifies a run | `id` = SHA-256 of the `inputs` object's bytes; `oid` = SHA-256 of the `outcome` object's bytes; a record is the pair, and its file is `DIR/<id>.<oid>.json` | the same inputs and the same outcome are the same file (idempotent); the same inputs and another outcome are another file, so a program that is not deterministic is **recorded as such** and not refused (D8) |
-| D5 | the identity of the program | `inputs.program` holds the program's name **and the SHA-256 and size of its file**, read by `flow` from the directory it starts it from | "what ran" is the first thing a record must say; a rebuilt `ml` is another run. Needs `flow` to read the binary: **[open]** whether `Fs` can be narrowed to the directory (question 2); fallback is an asserted `--program-sha256` |
+| D5 | the identity of the program | `inputs.program` holds the program's name **and the SHA-256 and size of its file**, read by `flow` from the directory it starts it from | "what ran" is the first thing a record must say; a rebuilt `ml` is another run. `flow` reads the binary through the same `Fs("")` it opens the root with, so no narrowing is needed; the price is that the row says `fs_read("")` (the whole file system) and not the programs directory (section 13) |
 | D6 | declared files | `--in` names the files a step reads and `--out` the files it writes; `flow` hashes the inputs before and the outputs after | only what is declared can be recorded or checked; undeclared reads and writes are invisible (section 9) |
 | D7 | time | duration and clock time are **not in the record**; the answer prints `milliseconds`; a durable journal is a later, separate file (question 7) | a record must be byte-identical when the run repeats |
 | D8 | determinism | **declared by the caller** (`--deterministic`) and part of `inputs`: a declared-deterministic step that yields a second `oid` for one `id` is refused (`flow.step.not-deterministic`, detail: both oids, nothing written); an undeclared step keeps every distinct outcome as a record | `flow` cannot know; a false claim must surface and an honest "not deterministic" must be allowed |
@@ -95,19 +95,21 @@ None of this was measured for a step that reads or writes many files, or for a c
 * **`oid`** is the SHA-256 of the exact bytes of `outcome`. `check` is the SHA-256 of every byte of the record before `,"check":"`, so a record edited by one byte is `flow.record.damaged`.
 * Paths are relative to `--root`, never absolute, and `..` is refused (`toolbox.path`, **[read]**). Argument strings are recorded as given: **a caller must not put a secret in an argument** (the record is the argument list), and `flow` refuses nothing it cannot recognise as one (section 9).
 * `flow` (the version) sits outside `inputs`, as `threads` does in `ml.run.v1`: a new `flow` that writes the same inputs and outcome writes the same `id` and `oid`.
-* Bounds **[choice]**: at most **1000 records** in `DIR` (`flow.record.too-many`, counted before anything is written), a record of at most **262144 bytes**, at most **64** declared files and **4096** arguments per step, a declared file of at most **2^30 bytes** unless `--max-bytes` raises it to a ceiling. Each is refused before the child starts.
+* Bounds **[choice]**: at most **1000 records** in `DIR` (`flow.record.too-many`, counted before anything is written), a record of at most **262144 bytes**, at most **64** declared files and **4096** arguments per step, a declared file of at most **2^30 bytes** unless `--max-bytes` raises it to a ceiling. Each is refused before the child starts. *(M1 enforces the record count, the 64 files and the 4096 arguments, each checked by a child that would leave a marker file (G4); the record's size is enforced when a record is read (`flow.record.too-large`) and not when it is written, which `flow` cannot make too large; the per-file byte cap and `--max-bytes` are **not built**.)*
 
 ## 5. The verbs
 
 All go through the flag table, `introspect`, `skill` and the schemas of `contract`. A flag not in the table is `args.unknown-flag`, never ignored (cancho `docs/flags.md`).
 
-### 5.1 `flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin] [--deterministic] [--allow-failure] [--keep-output] [--timeout-ms N] [--max-output N] -- PROGRAM [ARG...]`
+### 5.1 `flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] -- PROGRAM [ARG...]`
+
+*(Changed by the build: `--keep-output` (blobs) is M2 and is not built; `--answer-output` was added, because a caller that needs a program's output, not only its hash, has no other way to get it. It puts the streams in the **answer** as text and never in the record, so D14 holds. `--max-stdin` is `run`'s.)*
 
 In order, every check before the child starts: the program name (`flow.program-name`, `flow.program-not-found`), the bounds, every `--in` file exists, is a regular file and is hashed (`flow.input.missing`, `flow.input.too-large`), the record directory exists and is not full. Then the child runs under the deadline and the cap (`limit.timeout`, `limit.output-too-large`, both recorded as outcomes). Then every `--out` file is hashed (a declared file the child did not leave is `{"missing":true}` and, when the child exited 0, the step is `flow.step.output-missing`: it did not do what was declared). Then the record is written atomically (`toolbox.atomic`), **after** the child, **before** the answer. The answer is `{record:{id,oid,file,written}, outcome:{...}, milliseconds}`; `written:false` when the identical record was already there.
 
 ### 5.2 `flow-records list|show|compare|check DIR [ID[.OID]]`
 
-* `list`: one row per `id` (bytewise order): `{id, program, args_head, attempts, last_exit, deterministic}`; a record that does not validate is `flow.record.damaged`, not skipped.
+* `list`: one row per **record** (the order the directory lists them): `{id, oid, program, args (the count), exit, deterministic}`; a record that does not validate is `flow.record.damaged`, not skipped. *(Corrected by the build: the design said one row per `id` with an `attempts` count and bytewise order; M1 lists each record, and the grouping and the sort are not built.)*
 * `show ID[.OID]`: the record, validated (id and oid recomputed, check verified). An `ID` with several outcomes is `flow.record.ambiguous` with a `choose` repair listing the `oid`s.
 * `compare A B`: the `inputs` members that differ (a dotted key for the nested ones) and the outcome members side by side, as `ml runs compare` does.
 * `check ID[.OID]`: recomputes `id`, `oid` and `check`, then hashes **now** the program's file, every declared input and every declared output, and says which no longer match (`flow.check.program-changed`, `flow.check.inputs-changed`, `flow.check.outputs-changed`, each with the recorded and the found digest). It starts nothing and writes nothing.
@@ -198,16 +200,50 @@ Mutants: **all killed, or each survivor explained** (cancho-ml's rule). No gate 
 ## 12. Open questions for the maintainer
 
 1. **Does the repository earn a release** with one counted asker? (Section 1: the second is probable, not counted.)
-2. **D5: may `flow` read the program's file?** It needs `Fs` narrowed to the programs directory, which has not been tried (`narrow` takes a literal, so it should be possible the way `Exec` is). If not, the fallback is `--program-sha256` asserted by the caller, which is a weaker claim.
+2. **D5: may `flow` read the program's file?** *Answered by the build:* yes, through the `Fs("")` it already holds (the way every cancho-tools program reads under `--root`); no narrowing was needed, and `--program-sha256` is not needed. What it costs is in section 13: the read row is the whole file system, as in every sibling.
 3. **D4 and D8: one record per distinct outcome** (the proposal) or one record per `id` with a conflict (as `ml`)? The first lets a non-deterministic step be honest; the second treats any difference as a fault.
 4. **D9: a failed child is a refusal by default.** Or exit 0 and let the caller read `outcome.exit` (as `run` does)?
 5. **D10: no environment at all.** A program that needs `HOME` or a locale gets none. Is that too strict for the first users?
 6. **D15: no parallelism.** Whether independent steps may overlap, and how a record stays byte-identical if they do.
 7. **D7: a durable journal.** Whether `cancho-log` (append-only, crash-safe) is the backing for a run's ordered events, or a plain NDJSON file with `--log` like `ml`.
 8. **The name.** `cancho-flow` was proposed with `cancho-runbook` and `cancho-ledger` as alternatives (cancho-tools already has `run`).
-9. **Pinning.** `contract` at cancho-ml's pin (`8dab9176`) and the compiler of cancho-ml (`0207556b`) or cancho-tools' (`de4e52fd`)? The first M1 build will say which the sources need; the choice is recorded here.
+9. **Pinning.** *Settled by the build:* cancho-tools at `3399bd7a` and compiler `de4e52fd`, the pair `run` builds with. cancho-ml's pair (`8dab9176`, `0207556b`) was not tried.
 10. **MCP.** Whether `flow-records` is listed on cancho-tools' MCP server, and whether `flow` is ever.
 
 ## 13. Results
 
-Section 2 is the only measured part so far. Sections 10 and 11 are filled in as the gates run, with the machine and conditions, and a claim that turns out false is corrected where it was made.
+### 13.1 What M1 builds
+
+`flow step` and `flow-records list|show|check`, the record, the contract, the two authority rows, and the gates below. Run `CANCHO=<de4e52fd> scripts/check.sh` after `cancho install`: **[measured]** on this session's container (Linux x86-64, 4 cores), one run, the whole gate (builds, authority, every gate, every mutant) takes **97 s**.
+
+| gate | result **[measured]** |
+|---|---|
+| G1 canonical | the same step twice writes one record (`written:false` the second time); the same step in another directory writes the same name and **the same bytes**; the record holds neither the directory, `/tmp` nor the host name |
+| G2 damage | **2,136 cases, all refused as `flow.record.damaged`**: every byte flipped (one bit), every truncation, and two kinds of extra byte; a byte of `inputs` is refused by the layout or the id (never only by the check), a byte of `outcome` by the layout or the oid |
+| G3 refusals | **27 fixtures**, one per registered `flow.*` and `limit.*` rule and a selection of the contract's; no fixture raises an unregistered tag |
+| G4 bounds | a 300 ms deadline ends `sleep 5` in under 1.5 s and is recorded as a timeout; the output cap ends `yes`; a full record directory, 65 declared files, 4,100 arguments, a missing input, a `..` path and a bad flag value are each refused **before the child starts** (a child that would touch a marker file never ran) |
+| G5 determinism | a falsified `--deterministic` claim is refused and writes nothing; an undeclared step keeps both outcomes |
+| G7 check | an untouched step checks clean; a changed output is named with its path and both digests |
+| G8 authority | `scripts/manifest.py --check`: both derived rows equal the committed ones and the embedded `introspect` rows, and sit inside `tools.toml` |
+| G10 files | no source file over 2,000 lines |
+| G11 answer output | `--answer-output` puts the streams in the answer and never in the record |
+| mutants | **13 of 13 killed**: no check comparison, no id comparison, no oid comparison, bytes after the end accepted, a false determinism claim accepted, no record bound, a failed child not refused, a missing declared output not refused, a timeout not recorded, declared inputs left out of the record, `..` accepted, `check` blind to a changed program, `check` blind to a changed file |
+
+Not built: G6 (memoisation) and G9 (plans), because `--reuse`, `replay`, `compare`, `--keep-output` and `flow run` are M2 and M3.
+
+### 13.2 The authority, derived
+
+`flow`: `args`, `child_signal`, `clock`, `dir_read`, `dir_write`, `err_write`, `exec("/opt/cancho-flow/programs")`, `file_read`, `file_write`, `fs_read("")`, `heap`, `io_read`, `io_write`, `pipe_read`, `pipe_write`, `poll`. `flow-records`: `args`, `dir_read`, `err_write`, `file_read`, `fs_read("")`, `heap`, `io_write`: **no `exec`, no `clock`, no write**, which `scripts/manifest.py` enforces whatever `tools.toml` says. Two things to know. The read row of both is `fs_read("")`: the whole file system, as in every cancho-tools program (extent comes from `--root` confinement, not from the row). And `flow introspect` prints `reads_clock: false` although the row holds `clock`: that flag is not derived from the row (a field of `describe`'s Tool that this program left at its default); not corrected in M1, **[open]**.
+
+### 13.3 What the build corrected in this document
+
+* `list` is one row per record, not per id (5.2).
+* `--answer-output` exists, `--keep-output` does not yet (5.1).
+* D5 needed no `Fs` narrowing; question 2 and question 9 are answered (section 12).
+* Not every bound is enforced yet (section 4, the note on bounds).
+* **A bug the gates found in `flow`'s first version**: a program file that could not be read to be hashed (a link that loops) was reported as `path.symlink`, "the tool does not follow links", which is false of the programs directory. It is `flow.spawn-failed` with the errno now. It was found because the test's own setup made a link to a shell builtin (`command -v true` prints the bare name `true`), which is the kind of mistake a deployer makes.
+* **A defect in cancho-tools' documents, reported and not changed**: `docs/next-tools.md` section 3.1 still lists `run --stdin-file` (section 2 above).
+
+### 13.4 Decisions the build took by default (no answer had been given)
+
+D4 and D8 as proposed (one record per distinct outcome), D9 as proposed (a failed child is a refusal, `--allow-failure` to turn it off), D10 as proposed (no environment at all), D15 as proposed (no parallelism). They are implemented and tested, so overturning one is a change with a gate behind it, not an edit to a sentence.

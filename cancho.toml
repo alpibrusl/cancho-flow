@@ -1,0 +1,80 @@
+[package]
+name = "flow"
+cancho = "de4e52fd81809e6400e2c8b2f485d0b75412449c"   # the compiler these sources were written for (cancho-tools' pin: the pair `run` builds with)
+
+# `contract` is cancho-tools' package, one store per module, pinned to one commit and never copied (as cancho-ml and cancho-table do).
+# `cancho install` fetches the pinned modules into build/deps (not committed). `toolbox.built` is this repository's own generated module
+# (generated/<tool>, written by scripts/manifest.py). Two programs, because a program's authority is the union of what its main reaches
+# (docs/design.md D11): `flow` starts programs, `flow-records` only reads.
+
+[dependencies.atomic]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.atomic"
+
+[dependencies.cli]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.cli"
+
+[dependencies.describe]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.describe"
+
+[dependencies.fail]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.fail"
+
+[dependencies.limit]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.limit"
+
+[dependencies.lines]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.lines"
+
+[dependencies.out]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.out"
+
+[dependencies.path]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.path"
+
+[dependencies.place]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.place"
+
+[dependencies.rules]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.rules"
+
+[dependencies.sha]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.sha"
+
+[dependencies.text]
+git = "https://github.com/alpibrusl/cancho-tools"
+rev = "3399bd7a6c29d1bab3af7fac9021d2aa33644af1"
+path = ".cancho-vcs/toolbox.text"
+
+[[bin]]
+name = "flow"
+sources = ["lib/flow", "tools/flow", "generated/flow"]
+std = true
+out = "build/flow"
+
+[[bin]]
+name = "flow-records"
+sources = ["lib/flow", "tools/flow-records", "generated/flow-records"]
+std = true
+out = "build/flow-records"
