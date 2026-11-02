@@ -1,0 +1,4 @@
+build/
+.cancho-vcs/
+run/
+__pycache__/
