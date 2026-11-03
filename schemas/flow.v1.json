@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alpibrusl/cancho-flow/schemas/flow.v1.json",
+  "title": "flow.v1",
+  "description": "One JSON object on one line. ok is false exactly when errors is present; error is its first element.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "enum": [
+        "flow",
+        "flow-records"
+      ]
+    },
+    "schema": {
+      "const": "flow.v1"
+    },
+    "data": {
+      "$ref": "#/$defs/data"
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/error"
+      },
+      "minItems": 1
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    }
+  },
+  "required": [
+    "ok",
+    "command",
+    "schema",
+    "meta"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "error"
+              ]
+            },
+            {
+              "required": [
+                "errors"
+              ]
+            }
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "error",
+          "errors"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "text_or_bytes": {
+      "description": "UTF-8 text as a string; other bytes as base64 (RFC 4648 section 4, padded).",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "b64": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+            }
+          },
+          "required": [
+            "b64"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "repair": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "retry"
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "kind",
+            "argv"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "none"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "choose"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "argv": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "argv"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "options"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "GENERAL_ERROR",
+            "INVALID_ARGS",
+            "NOT_FOUND",
+            "PERMISSION_DENIED",
+            "CONFLICT",
+            "PRECONDITION_FAILED"
+          ]
+        },
+        "rule": {
+          "type": "string",
+          "pattern": "^[a-z]+\\.[a-z0-9-]+$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repair": {
+          "$ref": "#/$defs/repair"
+        },
+        "detail": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "code",
+        "rule",
+        "message",
+        "hint",
+        "repair",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "data": {
+      "anyOf": [
+        {
+          "title": "flow step",
+          "type": "object",
+          "properties": {
+            "record": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "oid": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "written": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "oid",
+                "file",
+                "written"
+              ],
+              "additionalProperties": false
+            },
+            "outcome": {
+              "type": "object",
+              "properties": {
+                "exit": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  ]
+                },
+                "signal": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  ]
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "truncated": {
+                  "type": "object",
+                  "properties": {
+                    "stdout": {
+                      "type": "boolean"
+                    },
+                    "stderr": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "stdout",
+                    "stderr"
+                  ],
+                  "additionalProperties": false
+                },
+                "stdout": {
+                  "type": "object",
+                  "properties": {
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "bytes",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "stderr": {
+                  "type": "object",
+                  "properties": {
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "bytes",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "out": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "bytes": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "bytes",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "missing": {
+                            "const": true
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "missing"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "exit",
+                "signal",
+                "timed_out",
+                "truncated",
+                "stdout",
+                "stderr",
+                "out"
+              ],
+              "additionalProperties": false
+            },
+            "milliseconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stdout": {
+              "$ref": "#/$defs/text_or_bytes"
+            },
+            "stderr": {
+              "$ref": "#/$defs/text_or_bytes"
+            }
+          },
+          "required": [
+            "record",
+            "outcome",
+            "milliseconds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "flow-records list",
+          "type": "object",
+          "properties": {
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "oid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "program": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "exit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "deterministic": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "oid",
+                  "program",
+                  "args",
+                  "exit",
+                  "deterministic"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "records",
+            "count"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "flow-records show",
+          "type": "object",
+          "properties": {
+            "record": {
+              "type": "object",
+              "properties": {
+                "schema": {
+                  "const": "flow.step.v1"
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "oid": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "inputs": {
+                  "type": "object"
+                },
+                "outcome": {
+                  "type": "object"
+                },
+                "flow": {
+                  "type": "string"
+                },
+                "check": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "schema",
+                "id",
+                "oid",
+                "inputs",
+                "outcome",
+                "flow",
+                "check"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "title": "flow-records check",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "oid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "program_matches": {
+              "type": "boolean"
+            },
+            "inputs_checked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outputs_checked": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "oid",
+            "program_matches",
+            "inputs_checked",
+            "outputs_checked"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

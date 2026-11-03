@@ -1,0 +1,35 @@
+edition 5;
+
+module flow.config;
+
+// The programs directory a deployment bakes in (docs/design.md D2, section 7). `scripts/flow_build.py` replaces this literal, and the
+// ones in tools/flow, together, because `narrow` takes a literal (cancho docs/processes.md section 7.1). `flow-records` reads a program's
+// file here (to check it) and starts nothing.
+pub fn programs() -> [] &static [byte] {
+    return "/opt/cancho-flow/programs";
+}
+
+pub fn version() -> [] &static [byte] {
+    return "0.1.0";
+}
+
+pub fn schema() -> [] &static [byte] {
+    return "flow.step.v1";
+}
+
+// Bounds (docs/design.md section 4) [choice].
+pub fn most_records() -> [] int {
+    return 1000;
+}
+
+pub fn most_record_bytes() -> [] int {
+    return 262144;
+}
+
+pub fn most_files() -> [] int {
+    return 64;
+}
+
+pub fn most_args() -> [] int {
+    return 4096;
+}

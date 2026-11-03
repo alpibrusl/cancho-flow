@@ -1,0 +1,111 @@
+edition 5;
+
+module flow.canon;
+
+// The canonical text of a record (docs/design.md section 4): one line, a fixed key order, no spaces, a final newline, and nothing that
+// varies between two runs of the same step. Everything here appends to a buffer; the same writer produces `inputs` (whose hash is the
+// id), `outcome` (whose hash is the oid) and the record that holds them, so the bytes that are hashed are the bytes that are stored.
+// Strings go through `text.append_json`; a caller refuses a string that is not UTF-8 first (`flow.args.not-utf8`), because that
+// function would otherwise write `{"b64":..}` where a string belongs.
+
+import std.buffer;
+import toolbox.atomic;
+import toolbox.text;
+import flow.config;
+
+pub fn str[&h, &d](heap: &!h Heap, b: buffer.Buffer, s: &d [byte]) -> [heap] buffer.Buffer {
+    return text.append_json(heap, b, s);
+}
+
+pub fn lit[&h](heap: &!h Heap, b: buffer.Buffer, s: &static [byte]) -> [heap] buffer.Buffer {
+    return buffer.append(heap, b, s);
+}
+
+// Bytes that are already canonical text (a rendered list of files), appended as they are.
+pub fn raw[&h, &d](heap: &!h Heap, b: buffer.Buffer, s: &d [byte]) -> [heap] buffer.Buffer {
+    return buffer.append(heap, b, s);
+}
+
+pub fn nat[&h](heap: &!h Heap, b: buffer.Buffer, n: int) -> [heap] buffer.Buffer {
+    return text.append_nat(heap, b, n);
+}
+
+pub fn boolean[&h](heap: &!h Heap, b: buffer.Buffer, v: bool) -> [heap] buffer.Buffer {
+    if v {
+        return buffer.append(heap, b, "true");
+    }
+    return buffer.append(heap, b, "false");
+}
+
+// `{"bytes":N,"sha256":".."}`
+pub fn digest[&h, &x](heap: &!h Heap, b: buffer.Buffer, size: int, hex: &x [byte]) -> [heap] buffer.Buffer {
+    var o = buffer.append(heap, b, "{\"bytes\":");
+    o = text.append_nat(heap, o, size);
+    o = buffer.append(heap, o, ",\"sha256\":\"");
+    o = buffer.append(heap, o, hex);
+    return buffer.append(heap, o, "\"}");
+}
+
+// `{"from":"stdin","bytes":N,"sha256":".."}`
+pub fn stdin_entry[&h, &x](heap: &!h Heap, b: buffer.Buffer, size: int, hex: &x [byte]) -> [heap] buffer.Buffer {
+    var o = buffer.append(heap, b, "{\"from\":\"stdin\",\"bytes\":");
+    o = text.append_nat(heap, o, size);
+    o = buffer.append(heap, o, ",\"sha256\":\"");
+    o = buffer.append(heap, o, hex);
+    return buffer.append(heap, o, "\"}");
+}
+
+// `{"path":"..","bytes":N,"sha256":".."}`
+pub fn file[&h, &p, &x](heap: &!h Heap, b: buffer.Buffer, path: &p [byte], size: int, hex: &x [byte]) -> [heap] buffer.Buffer {
+    var o = buffer.append(heap, b, "{\"path\":");
+    o = text.append_json(heap, o, path);
+    o = buffer.append(heap, o, ",\"bytes\":");
+    o = text.append_nat(heap, o, size);
+    o = buffer.append(heap, o, ",\"sha256\":\"");
+    o = buffer.append(heap, o, hex);
+    return buffer.append(heap, o, "\"}");
+}
+
+// `{"path":"..","missing":true}`
+pub fn missing[&h, &p](heap: &!h Heap, b: buffer.Buffer, path: &p [byte]) -> [heap] buffer.Buffer {
+    var o = buffer.append(heap, b, "{\"path\":");
+    o = text.append_json(heap, o, path);
+    return buffer.append(heap, o, ",\"missing\":true}");
+}
+
+// The record: `{"schema":..,"id":..,"oid":..,"inputs":..,"outcome":..,"flow":..,"check":..}` and a newline. `id` and `oid` are the SHA-256 of
+// the exact bytes of `inputs` and `outcome`; `check` is the SHA-256 of every byte before `,"check":"`.
+pub fn record[&h, &i, &o](heap: &!h Heap, inputs: &i [byte], outcome: &o [byte]) -> [heap] buffer.Buffer {
+    let id = atomic.sha256_hex(heap, inputs);
+    let oid = atomic.sha256_hex(heap, outcome);
+    var r = buffer.empty(heap, 512 + len(inputs) + len(outcome));
+    r = buffer.append(heap, r, "{\"schema\":\"flow.step.v1\",\"id\":\"");
+    borrow id as &a in {
+        r = buffer.append(heap, r, buffer.bytes(a));
+    }
+    r = buffer.append(heap, r, "\",\"oid\":\"");
+    borrow oid as &b in {
+        r = buffer.append(heap, r, buffer.bytes(b));
+    }
+    r = buffer.append(heap, r, "\",\"inputs\":");
+    r = buffer.append(heap, r, inputs);
+    r = buffer.append(heap, r, ",\"outcome\":");
+    r = buffer.append(heap, r, outcome);
+    r = buffer.append(heap, r, ",\"flow\":\"");
+    r = buffer.append(heap, r, config.version());
+    r = buffer.append(heap, r, "\"");
+    var check = buffer.empty(heap, 1);
+    borrow r as &p in {
+        buffer.drop(heap, check);
+        check = atomic.sha256_hex(heap, buffer.bytes(p));
+    }
+    r = buffer.append(heap, r, ",\"check\":\"");
+    borrow check as &c in {
+        r = buffer.append(heap, r, buffer.bytes(c));
+    }
+    r = buffer.append(heap, r, "\"}\n");
+    buffer.drop(heap, id);
+    buffer.drop(heap, oid);
+    buffer.drop(heap, check);
+    return r;
+}

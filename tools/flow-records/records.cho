@@ -1,0 +1,565 @@
+edition 7;
+
+// `flow-records` -- read the records `flow` wrote (docs/design.md section 5.2). It starts nothing, holds no clock and writes nothing: an
+// auditor can be granted it without `flow`.
+//
+//     flow-records list  [--root DIR] [--format json|text] DIR
+//     flow-records show  [--root DIR] [--format json|text] DIR ID[.OID]
+//     flow-records check [--root DIR] [--format json|text] DIR ID[.OID]
+//
+// `list` reads every record of DIR and refuses one that does not validate (`flow.record.damaged`, with the file's name): it is not
+// skipped. `show` answers one record, validated. `check` validates it, then hashes now the program's file, every declared input and every
+// declared output, and names each one that no longer matches the record (`flow.check.*`). It runs nothing, so it says what the files
+// are, not whether the step would give the same outcome again (that is `replay`, a later milestone).
+
+import std.buffer;
+import std.bytes;
+import std.dirs;
+import std.io;
+import std.json;
+import toolbox.atomic;
+import toolbox.built;
+import toolbox.cli;
+import toolbox.describe;
+import toolbox.fail;
+import toolbox.out;
+import toolbox.path;
+import toolbox.place;
+import toolbox.sha;
+import toolbox.text;
+import flow.config;
+import flow.files;
+import flow.scan;
+
+fn extra() -> [] &static [byte] {
+    return "flow.verb|2|never|the first operand is not a verb this program has (list, show, check);flow.record.damaged|8|never|a record file does not read back as a record: its layout, its id, its oid or its check is not what its bytes give;flow.record.unknown|3|never|the directory holds no record with that id;flow.record.ambiguous|5|never|the id has more than one record (one per outcome); name one with ID.OID;flow.record.too-large|8|never|a record file is larger than a record may be;flow.check.program-changed|5|never|the program's file is not the one the record names;flow.check.inputs-changed|5|never|a declared input is not what the record names (changed, or gone);flow.check.outputs-changed|5|never|a declared output is not what the record names (changed, or gone)";
+}
+
+fn flag_table() -> [] &static [byte] {
+    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);format||choice:json/text|none|json|json for a document, text for a few lines for a person";
+}
+
+fn tool() -> [] describe.Tool {
+    return describe.Tool { name: "flow-records", version: "0.1.0", summary: "Read the records flow wrote: list a directory, show one record validated, or check that the program and every declared input and output still match it. Starts nothing, writes nothing, holds no clock.", usage: "flow-records list|show|check [--root DIR] [--format json|text] DIR [ID[.OID]]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|list, show or check;DIR|path|1|1|the directory of records;ID|text|0|1|a record's id, or ID.OID (show and check)", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;flow.verb;flow.record.damaged;flow.record.unknown;flow.record.ambiguous;flow.record.too-large;flow.check.program-changed;flow.check.inputs-changed;flow.check.outputs-changed", extra_rules: extra(), limits: "", reversibility: "reversible-cheap", stdin: "never", guarantees: "bounded_memory;deterministic;idempotent;read_only" };
+}
+
+fn built() -> [] describe.Built {
+    return describe.Built { authority: built.authority(), schema: built.schema(), compiler: built.compiler() };
+}
+
+fn flag_problem[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], flags: &static [byte]) -> [heap] fail.Errors {
+    var w = fail.open(heap, rule, message, hint);
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "flags");
+    w = json.put_string(heap, w, flags);
+    return fail.add(heap, e, w);
+}
+
+fn json_name[&n](name: &n [byte]) -> [] bool {
+    return len(name) > 5 && bytes.equal(name[len(name) - 5..len(name)], ".json");
+}
+
+// A record's file name: `<64 hex>.<64 hex>.json`.
+fn record_name[&n](name: &n [byte]) -> [] bool {
+    return len(name) == 134 && sha.is_hex(name[0..64], 64) && int_of(name[64]) == '.' && sha.is_hex(name[65..129], 64) && bytes.equal(name[129..134], ".json");
+}
+
+// `ID` or `ID.OID`, as a person names a record.
+fn spec_ok[&n](spec: &n [byte]) -> [] bool {
+    if len(spec) == 64 {
+        return sha.is_hex(spec, 64);
+    }
+    return len(spec) == 129 && sha.is_hex(spec[0..64], 64) && int_of(spec[64]) == '.' && sha.is_hex(spec[65..129], 64);
+}
+
+// ---- reading one record --------------------------------------------------
+
+// The text of the record file `name` in `dir` and what reading it found (`reason` as `scan.Parts`, 5 for a file that could not be read or is
+// too large).
+fn read_record[&h, &d, &n](heap: &!h Heap, dir: &d Dir, name: &n [byte], e: fail.Errors) -> [heap, dir_read, file_read] (buffer.Buffer, scan.Parts, fail.Errors) {
+    var errs = e;
+    let (text_in, errno, too_big) = atomic.read_all(heap, dir_open_read(dir, name), config.most_record_bytes(), buffer.empty(heap, 4096));
+    var parts = scan.parse(heap, "");
+    if errno != 0 {
+        errs = fail.io_error(heap, errs, errno, false, name);
+    } else if too_big {
+        errs = fail.simple(heap, errs, "flow.record.too-large", "a record file is larger than a record may be", "a record is at most 262144 bytes; a file that large is not one flow wrote", "file", name);
+    } else {
+        borrow text_in as &t in {
+            parts = scan.parse(heap, buffer.bytes(t));
+        }
+        if parts.reason != 0 {
+            var w = fail.open_in(heap, extra(), "flow.record.damaged", "the file does not read back as a record", "its layout, its id, its oid or its check is not what its bytes give; the file was edited or damaged (reason: 1 layout, 2 id, 3 oid, 4 check)");
+            w = fail.no_repair(heap, w);
+            w = fail.detail_open(heap, w);
+            w = json.put_key(heap, w, "file");
+            w = text.put(heap, w, name);
+            w = json.put_key(heap, w, "reason");
+            w = json.put_int(heap, w, parts.reason);
+            errs = fail.add(heap, errs, w);
+        }
+    }
+    return (text_in, parts, errs);
+}
+
+// The program name of a record, from its `inputs`.
+fn parse_object[&h, &s](heap: &!h Heap, src: &s [byte]) -> [heap] Box[[int]] {
+    let tape = box_slice(heap, json.tape_len(src), 0);
+    borrow mut tape as &!tw in {
+        json.parse(src, contents(tw));
+    }
+    return tape;
+}
+
+// Node `key` of the object at `obj`, or -1.
+fn member[&s, &t, &k](src: &s [byte], tape: &t [int], obj: int, key: &k [byte]) -> [] int {
+    return json.get(src, tape, obj, key);
+}
+
+// A string node, decoded, as a buffer.
+fn decoded[&h, &s, &t](heap: &!h Heap, src: &s [byte], tape: &t [int], node: int) -> [heap] buffer.Buffer {
+    var out = buffer.empty(heap, 1);
+    if node < 0 || !json.is_string(tape, node) {
+        return out;
+    }
+    let n = json.string_length(src, tape, node);
+    let hold = box_slice(heap, n + 1, byte_of(0));
+    var got = 0;
+    borrow mut hold as &!hw in {
+        got = json.string_into(src, tape, node, contents(hw));
+    }
+    borrow hold as &hr in {
+        out = buffer.append(heap, out, contents(hr)[0..got]);
+    }
+    unbox_slice(heap, hold);
+    return out;
+}
+
+// ---- finding a record ----------------------------------------------------
+
+// The name of the one record file that `spec` (ID or ID.OID) names, and how many matched.
+fn locate[&h, &d, &n](heap: &!h Heap, dir: &d Dir, spec: &n [byte]) -> [heap, dir_read] (buffer.Buffer, int, int) {
+    let names = dirs.list(heap, dir, config.most_records() + 2);
+    var found = buffer.empty(heap, 1);
+    var count = 0;
+    var failed = 0;
+    borrow names as &nm in {
+        failed = dirs.failed(nm);
+        var k = 0;
+        while k < dirs.count(nm) {
+            let name = dirs.name(nm, k);
+            var hit = false;
+            if record_name(name) {
+                if len(spec) == 129 {
+                    hit = bytes.equal(name[0..129], spec);
+                } else {
+                    hit = bytes.equal(name[0..64], spec);
+                }
+            }
+            if hit {
+                count = count + 1;
+                buffer.drop(heap, found);
+                found = buffer.empty(heap, 140);
+                found = buffer.append(heap, found, name);
+            }
+            k = k + 1;
+        }
+    }
+    dirs.drop(heap, names);
+    return (found, count, failed);
+}
+
+// ---- the verbs -----------------------------------------------------------
+
+fn put_summary[&h, &t, &s1, &s2](heap: &!h Heap, w: json.Writer, record: &t [byte], parts: scan.Parts, tape_i: &s1 [int], tape_o: &s2 [int]) -> [heap] json.Writer {
+    var out = w;
+    let inputs = record[parts.inputs_a..parts.inputs_b];
+    let outcome = record[parts.outcome_a..parts.outcome_b];
+    out = json.begin_object(heap, out);
+    out = json.put_key(heap, out, "id");
+    out = json.put_string(heap, out, record[parts.id_at..parts.id_at + 64]);
+    out = json.put_key(heap, out, "oid");
+    out = json.put_string(heap, out, record[parts.oid_at..parts.oid_at + 64]);
+    let program = json.get(inputs, tape_i, 0, "program");
+    let pname = decoded(heap, inputs, tape_i, json.get(inputs, tape_i, program, "name"));
+    out = json.put_key(heap, out, "program");
+    borrow pname as &pn in {
+        out = text.put(heap, out, buffer.bytes(pn));
+    }
+    buffer.drop(heap, pname);
+    let args = json.get(inputs, tape_i, 0, "args");
+    out = json.put_key(heap, out, "args");
+    out = json.put_int(heap, out, json.count(tape_i, args));
+    let code = json.get(outcome, tape_o, 0, "exit");
+    out = json.put_key(heap, out, "exit");
+    if code >= 0 && json.is_int(tape_o, code) {
+        out = json.put_int(heap, out, json.to_int(outcome, tape_o, code));
+    } else {
+        out = json.put_null(heap, out);
+    }
+    out = json.put_key(heap, out, "deterministic");
+    out = json.put_bool(heap, out, json.to_bool(tape_i, json.get(inputs, tape_i, 0, "deterministic")));
+    return json.end_object(heap, out);
+}
+
+fn do_list[&h, &d, &r](heap: &!h Heap, dir: &d Dir, e: fail.Errors) -> [heap, dir_read, file_read] (buffer.Buffer, fail.Errors) {
+    var errs = e;
+    let names = dirs.list(heap, dir, config.most_records() + 2);
+    var w = json.writer(heap, 1024);
+    w = json.begin_object(heap, w);
+    w = json.put_key(heap, w, "records");
+    w = json.begin_array(heap, w);
+    var count = 0;
+    borrow names as &nm in {
+        if dirs.failed(nm) != 0 {
+            errs = fail.io_error(heap, errs, dirs.failed(nm), false, ".");
+        }
+        var k = 0;
+        while k < dirs.count(nm) && count < config.most_records() {
+            let name = dirs.name(nm, k);
+            if json_name(name) {
+                let (record, parts, after) = read_record(heap, dir, name, errs);
+                errs = after;
+                if parts.reason == 0 {
+                    borrow record as &rc in {
+                        let tape_i = parse_object(heap, buffer.bytes(rc)[parts.inputs_a..parts.inputs_b]);
+                        let tape_o = parse_object(heap, buffer.bytes(rc)[parts.outcome_a..parts.outcome_b]);
+                        borrow tape_i as &ti in {
+                            borrow tape_o as &to in {
+                                w = put_summary(heap, w, buffer.bytes(rc), parts, contents(ti), contents(to));
+                            }
+                        }
+                        unbox_slice(heap, tape_i);
+                        unbox_slice(heap, tape_o);
+                    }
+                    count = count + 1;
+                }
+                buffer.drop(heap, record);
+            }
+            k = k + 1;
+        }
+    }
+    dirs.drop(heap, names);
+    w = json.end_array(heap, w);
+    w = json.put_key(heap, w, "count");
+    w = json.put_int(heap, w, count);
+    w = json.end_object(heap, w);
+    return (json.finish(w), errs);
+}
+
+fn ambiguity[&h, &n](heap: &!h Heap, e: fail.Errors, spec: &n [byte], count: int) -> [heap] fail.Errors {
+    if count == 0 {
+        var w = fail.open_in(heap, extra(), "flow.record.unknown", "the directory holds no record with that id", "flow-records list shows what it holds");
+        w = fail.no_repair(heap, w);
+        w = fail.detail_open(heap, w);
+        w = json.put_key(heap, w, "id");
+        w = json.put_string(heap, w, spec);
+        return fail.add(heap, e, w);
+    }
+    var w = fail.open_in(heap, extra(), "flow.record.ambiguous", "the id has more than one record, one per outcome", "name one with ID.OID; flow-records list shows each oid");
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "id");
+    w = json.put_string(heap, w, spec);
+    w = json.put_key(heap, w, "records");
+    w = json.put_int(heap, w, count);
+    return fail.add(heap, e, w);
+}
+
+// A mismatch of one file with the record: `rule`, the path, the recorded digest and the digest found (or `missing`).
+fn mismatch[&h, &p, &r, &f](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], path: &p [byte], recorded: &r [byte], found: &f [byte]) -> [heap] fail.Errors {
+    var w = fail.open_in(heap, extra(), rule, message, hint);
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "path");
+    w = text.put(heap, w, path);
+    w = json.put_key(heap, w, "recorded");
+    w = json.put_string(heap, w, recorded);
+    w = json.put_key(heap, w, "found");
+    w = json.put_string(heap, w, found);
+    return fail.add(heap, e, w);
+}
+
+// Check one declared file against the entry at `node` of `tape` in `src` (an `in` or `out` entry). Answers the errors.
+fn check_entry[&h, &f, &r, &s, &t](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], src: &s [byte], tape: &t [int], node: int, is_input: bool, e: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] fail.Errors {
+    var errs = e;
+    let path_text = decoded(heap, src, tape, json.get(src, tape, node, "path"));
+    let sha_node = json.get(src, tape, node, "sha256");
+    let recorded_missing = sha_node < 0;
+    let recorded = decoded(heap, src, tape, sha_node);
+    borrow path_text as &pt in {
+        let (declared, after) = files.declare(heap, fs, root, buffer.bytes(pt), true, errs);
+        errs = after;
+        let files.Declared { rel, hex, size, errno } = declared;
+        var found = buffer.empty(heap, 16);
+        var same = false;
+        if errno == 0 {
+            borrow hex as &hx in {
+                found = buffer.append(heap, found, buffer.bytes(hx));
+                borrow recorded as &rc in {
+                    same = !recorded_missing && bytes.equal(buffer.bytes(hx), buffer.bytes(rc));
+                }
+            }
+        } else if errno == 2 {
+            buffer.drop(heap, found);
+            found = buffer.append(heap, buffer.empty(heap, 16), "missing");
+            same = recorded_missing;
+        } else if errno > 0 {
+            errs = fail.io_error(heap, errs, errno, false, buffer.bytes(pt));
+            same = true;
+        }
+        if !same {
+            borrow recorded as &rc in {
+                borrow found as &fd in {
+                    var shown: &static [byte] = "missing";
+                    if is_input {
+                        errs = mismatch(heap, errs, "flow.check.inputs-changed", "a declared input is not what the record names", "the file changed or is gone since the step ran; the step's record no longer describes the files", buffer.bytes(pt), buffer.bytes(rc), buffer.bytes(fd));
+                    } else {
+                        errs = mismatch(heap, errs, "flow.check.outputs-changed", "a declared output is not what the record names", "the file changed or is gone since the step ran; the step's record no longer describes the files", buffer.bytes(pt), buffer.bytes(rc), buffer.bytes(fd));
+                    }
+                }
+            }
+        }
+        buffer.drop(heap, found);
+        buffer.drop(heap, rel);
+        buffer.drop(heap, hex);
+    }
+    buffer.drop(heap, path_text);
+    buffer.drop(heap, recorded);
+    return errs;
+}
+
+fn do_check[&h, &f, &r, &t](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], record: &t [byte], parts: scan.Parts, e: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (buffer.Buffer, fail.Errors) {
+    var errs = e;
+    let inputs = record[parts.inputs_a..parts.inputs_b];
+    let outcome = record[parts.outcome_a..parts.outcome_b];
+    let tape_i = parse_object(heap, inputs);
+    let tape_o = parse_object(heap, outcome);
+    var n_in = 0;
+    var n_out = 0;
+    var program_match = true;
+    borrow tape_i as &ti in {
+        borrow tape_o as &to in {
+            // the program
+            let program = json.get(inputs, contents(ti), 0, "program");
+            let pname = decoded(heap, inputs, contents(ti), json.get(inputs, contents(ti), program, "name"));
+            let precorded = decoded(heap, inputs, contents(ti), json.get(inputs, contents(ti), program, "sha256"));
+            borrow pname as &pn in {
+                let (hex, errno, size) = files.hash_program(heap, fs, buffer.bytes(pn));
+                var found = "missing";
+                if errno == 0 {
+                    borrow hex as &hx in {
+                        borrow precorded as &pr in {
+                            program_match = bytes.equal(buffer.bytes(hx), buffer.bytes(pr));
+                        }
+                    }
+                } else {
+                    program_match = false;
+                }
+                if !program_match {
+                    borrow precorded as &pr in {
+                        borrow hex as &hx in {
+                            var shown = buffer.empty(heap, 16);
+                            if errno == 0 {
+                                shown = buffer.append(heap, shown, buffer.bytes(hx));
+                            } else {
+                                shown = buffer.append(heap, shown, "missing");
+                            }
+                            borrow shown as &sh in {
+                                errs = mismatch(heap, errs, "flow.check.program-changed", "the program's file is not the one the record names", "the program was rebuilt or replaced since the step ran; it is another program now", buffer.bytes(pn), buffer.bytes(pr), buffer.bytes(sh));
+                            }
+                            buffer.drop(heap, shown);
+                        }
+                    }
+                }
+                buffer.drop(heap, hex);
+            }
+            buffer.drop(heap, pname);
+            buffer.drop(heap, precorded);
+            // the declared inputs
+            let ins = json.get(inputs, contents(ti), 0, "in");
+            n_in = json.count(contents(ti), ins);
+            var k = 0;
+            while k < n_in {
+                errs = check_entry(heap, fs, root, inputs, contents(ti), json.at(contents(ti), ins, k), true, errs);
+                k = k + 1;
+            }
+            // the declared outputs
+            let outs = json.get(outcome, contents(to), 0, "out");
+            n_out = json.count(contents(to), outs);
+            k = 0;
+            while k < n_out {
+                errs = check_entry(heap, fs, root, outcome, contents(to), json.at(contents(to), outs, k), false, errs);
+                k = k + 1;
+            }
+        }
+    }
+    unbox_slice(heap, tape_i);
+    unbox_slice(heap, tape_o);
+    var w = json.writer(heap, 512);
+    w = json.begin_object(heap, w);
+    w = json.put_key(heap, w, "id");
+    w = json.put_string(heap, w, record[parts.id_at..parts.id_at + 64]);
+    w = json.put_key(heap, w, "oid");
+    w = json.put_string(heap, w, record[parts.oid_at..parts.oid_at + 64]);
+    w = json.put_key(heap, w, "program_matches");
+    w = json.put_bool(heap, w, program_match);
+    w = json.put_key(heap, w, "inputs_checked");
+    w = json.put_int(heap, w, n_in);
+    w = json.put_key(heap, w, "outputs_checked");
+    w = json.put_int(heap, w, n_out);
+    w = json.end_object(heap, w);
+    return (json.finish(w), errs);
+}
+
+fn body[&h, &g, &p, &f, &i](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), io: &!i Io, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, file_read, io_write, err_write] int {
+    let table = flag_table();
+    var e = errs;
+    let text_mode = bytes.equal(cli.text(args, parsed, table, "format"), "text");
+    let (root, after_root) = path.root(heap, args, cli.text(args, parsed, table, "root"), cli.value_index(parsed, table, "root"), e);
+    e = after_root;
+    var verb = 0;
+    if cli.operand_count(parsed) == 0 {
+        e = flag_problem(heap, e, "args.missing-operand", "flow-records takes a verb (list, show, check) and a DIR", "flow-records list DIR", "VERB");
+    } else {
+        let word = cli.operand(args, parsed, 0);
+        if bytes.equal(word, "list") {
+            verb = 1;
+        } else if bytes.equal(word, "show") {
+            verb = 2;
+        } else if bytes.equal(word, "check") {
+            verb = 3;
+        } else {
+            var w = fail.open_in(heap, extra(), "flow.verb", "the first operand is not a verb this program has", "the verbs are list, show and check; flow starts programs");
+            w = fail.no_repair(heap, w);
+            w = fail.detail_open(heap, w);
+            w = json.put_key(heap, w, "verb");
+            w = text.put(heap, w, word);
+            e = fail.add(heap, e, w);
+        }
+    }
+    if verb > 0 && cli.operand_count(parsed) < 2 {
+        e = flag_problem(heap, e, "args.missing-operand", "the verb takes the DIR of records", "flow-records list DIR", "DIR");
+    }
+    if (verb == 2 || verb == 3) && cli.operand_count(parsed) < 3 {
+        e = flag_problem(heap, e, "args.missing-operand", "show and check take the record's ID or ID.OID", "flow-records check DIR ID", "ID");
+    } else if (verb == 2 || verb == 3) && !spec_ok(cli.operand(args, parsed, 2)) {
+        e = flag_problem(heap, e, "args.bad-value", "the record is named by its id (64 lowercase hex digits), or by ID.OID", "copy the id from flow-records list", "ID");
+    }
+    var payload = buffer.empty(heap, 1);
+    var refused = false;
+    borrow e as &er in {
+        refused = fail.count(er) > 0;
+    }
+    if !refused {
+        borrow root as &rt in {
+            let (resolved, after) = path.operand(heap, args, buffer.bytes(rt), cli.operand_index(parsed, 1), e);
+            e = after;
+            borrow resolved as &rp in {
+                if path.ok(rp) {
+                    match place.open_directory(fs, buffer.bytes(rt), path.shown(rp), path.full(rp)) {
+                        DirOpened::Failed(errno) => {
+                            e = fail.io_error(heap, e, errno, false, path.shown(rp));
+                        }
+                        DirOpened::Ok(opened) => {
+                            var dir = opened;
+                            borrow dir as &dd in {
+                                if verb == 1 {
+                                    let (pl, after2) = do_list(heap, dd, e);
+                                    buffer.drop(heap, payload);
+                                    payload = pl;
+                                    e = after2;
+                                } else {
+                                    let spec = cli.operand(args, parsed, 2);
+                                    let (name, count, failed) = locate(heap, dd, spec);
+                                    if failed != 0 {
+                                        e = fail.io_error(heap, e, failed, false, path.shown(rp));
+                                    } else if count != 1 {
+                                        e = ambiguity(heap, e, spec, count);
+                                    } else {
+                                        borrow name as &nm in {
+                                            let (record, parts, after2) = read_record(heap, dd, buffer.bytes(nm), e);
+                                            e = after2;
+                                            if parts.reason == 0 {
+                                                borrow record as &rc in {
+                                                    if verb == 2 {
+                                                        var w = json.writer(heap, 2048);
+                                                        w = json.begin_object(heap, w);
+                                                        w = json.put_key(heap, w, "record");
+                                                        w = json.put_fragment(heap, w, buffer.bytes(rc)[0..buffer.size(rc) - 1]);
+                                                        w = json.end_object(heap, w);
+                                                        buffer.drop(heap, payload);
+                                                        payload = json.finish(w);
+                                                    } else {
+                                                        let (pl, after3) = do_check(heap, fs, buffer.bytes(rt), buffer.bytes(rc), parts, e);
+                                                        buffer.drop(heap, payload);
+                                                        payload = pl;
+                                                        e = after3;
+                                                    }
+                                                }
+                                            }
+                                            buffer.drop(heap, record);
+                                        }
+                                    }
+                                    buffer.drop(heap, name);
+                                }
+                            }
+                            dir_close(dir);
+                        }
+                    }
+                }
+            }
+            path.drop(heap, resolved);
+        }
+    }
+    buffer.drop(heap, root);
+    var status = 0;
+    borrow e as &er in {
+        borrow payload as &pl in {
+            status = out.respond(heap, io, "flow-records", "flow.v1", config.version(), buffer.bytes(pl), "", er, text_mode, "", 0);
+        }
+    }
+    buffer.drop(heap, payload);
+    fail.drop(heap, e);
+    return status;
+}
+
+fn run[&h, &g, &f, &i](heap: &!h Heap, args: &g Args, fs: &f Fs(""), io: &!i Io) -> [heap, args, fs_read(""), dir_read, file_read, io_write, err_write] int {
+    let which = cli.subcommand(args);
+    if which != 0 {
+        return describe.answer(heap, io, which, tool(), built());
+    }
+    let (parsed, e) = cli.parse(heap, args, flag_table(), fail.empty_in(heap, extra()));
+    var status = 0;
+    borrow parsed as &p in {
+        status = body(heap, args, p, fs, io, e);
+    }
+    cli.drop(heap, parsed);
+    return status;
+}
+
+fn main(world: World) -> [] int {
+    let Split { io, ffi, fs, heap, args, net, clock, signals, exec } = split(world);
+    // No foreign code, no network, no clock, no signals, nothing to start: this program only reads.
+    release(ffi);
+    release(net);
+    release(clock);
+    release(signals);
+    release(exec);
+    var status = 0;
+    borrow mut heap as &!h in {
+        borrow args as &g in {
+            borrow fs as &f in {
+                borrow mut io as &!i in {
+                    status = run(h, g, f, i);
+                }
+            }
+        }
+    }
+    release(heap);
+    release(args);
+    release(fs);
+    release(io);
+    return status;
+}
