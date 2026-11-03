@@ -220,7 +220,7 @@ Mutants: **all killed, or each survivor explained** (cancho-ml's rule). No gate 
 |---|---|
 | G1 canonical | the same step twice writes one record (`written:false` the second time); the same step in another directory writes the same name and **the same bytes**; the record holds neither the directory, `/tmp` nor the host name |
 | G2 damage | **2,136 cases, all refused as `flow.record.damaged`**: every byte flipped (one bit), every truncation, and two kinds of extra byte; a byte of `inputs` is refused by the layout or the id (never only by the check), a byte of `outcome` by the layout or the oid |
-| G3 refusals | **27 fixtures**, one per registered `flow.*` and `limit.*` rule and a selection of the contract's; no fixture raises an unregistered tag |
+| G3 refusals | **28 fixtures**, one per registered `flow.*` and `limit.*` rule and a selection of the contract's; no fixture raises an unregistered tag |
 | G4 bounds | a 300 ms deadline ends `sleep 5` in under 1.5 s and is recorded as a timeout; the output cap ends `yes`; a full record directory, 65 declared files, 4,100 arguments, a missing input, a `..` path and a bad flag value are each refused **before the child starts** (a child that would touch a marker file never ran) |
 | G5 determinism | a falsified `--deterministic` claim is refused and writes nothing; an undeclared step keeps both outcomes |
 | G7 check | an untouched step checks clean; a changed output is named with its path and both digests |

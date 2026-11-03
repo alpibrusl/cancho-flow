@@ -1,0 +1,6 @@
+#!/bin/sh
+# digest LOG OUT -- the demo program of the landing page (docs/index.html): the requests per client address of an access log, most first.
+# A script of this repository, so that its SHA-256, and with it every id and oid the page shows, is the same on every machine. It finds
+# cut, sort and uniq through PATH, which flow sets to the programs directory and nothing else (so the locale is C and the order is fixed).
+cut -d' ' -f1 "$1" | sort | uniq -c | sort -k1,1nr -k2,2 > "$2"
+echo "digest written"

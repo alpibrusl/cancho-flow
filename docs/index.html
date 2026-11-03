@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<!--
+  The landing page. Hand-written, except between the paired "gen:NAME" comment lines (the replayed runs) and except the figures marked
+  data-n="NAME": scripts/site.py writes those from the built programs and the sources (run python3 scripts/site.py; scripts/check_landing.py
+  checks the page, and scripts/site.py --check that nothing drifted). The long document is docs/design.md.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cancho-flow: a run is a claim you can check</title>
+<meta name="description" content="Run a program as a recorded step: one canonical record of what it was given and what came out, read back and checked against the files on disk.">
+<link rel="canonical" href="https://alpibrusl.github.io/cancho-flow/">
+<meta name="robots" content="index, follow">
+<meta property="og:site_name" content="cancho-flow">
+<meta property="og:locale" content="en">
+<meta property="og:type" content="website">
+<meta property="og:title" content="cancho-flow: a run is a claim you can check">
+<meta property="og:description" content="Run a program as a recorded step: one canonical record of what it was given and what came out, read back and checked against the files on disk.">
+<meta property="og:url" content="https://alpibrusl.github.io/cancho-flow/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="cancho-flow: a run is a claim you can check">
+<meta name="twitter:description" content="Run a program as a recorded step: one canonical record of what it was given and what came out, read back and checked against the files on disk.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "cancho-flow",
+  "url": "https://alpibrusl.github.io/cancho-flow/",
+  "description": "A command line that runs one program as a recorded step, with a canonical content-addressed record that flow-records reads back and checks, structured refusals and a machine-verifiable authority.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Command-line tool",
+  "programmingLanguage": "cancho",
+  "license": "EUPL-1.2",
+  "sameAs": ["https://github.com/alpibrusl/cancho-flow"]
+}
+</script>
+<meta name="color-scheme" content="light dark">
+<link rel="alternate" type="text/markdown" href="agents.md" title="cancho-flow, as an agent reads it">
+<link rel="icon" type="image/svg+xml" href="assets/cancho-flow-icon.svg">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/home.css">
+</head>
+<body class="home">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./">cancho-flow</a>
+  <nav aria-label="Site">
+    <a href="#watch" class="opt">Watch it run</a><a href="#how" class="opt">How it works</a><a href="#try">Try it</a><a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md">Design</a><a href="https://github.com/alpibrusl/cancho-flow">GitHub</a>
+  </nav>
+</div></header>
+
+<main id="main">
+
+<div class="wrap hero">
+  <div>
+    <p class="eyebrow">one program · one record · one check</p>
+    <h1>A run is a claim you can check, and flow keeps the claim.</h1>
+    <p class="sub">cancho-flow runs a program as a step and writes down what it was given and what came out. Later it tells you whether the files on disk still match.</p>
+    <div class="cta"><a class="btn primary" href="#try">Try it</a><a class="btn" href="#watch">Watch it run</a></div>
+  </div>
+  <div class="machine reveal" aria-hidden="false">
+<svg viewBox="0 0 560 330" role="img" aria-labelledby="mc-t mc-d">
+<title id="mc-t">A log goes through a program and comes out as a digest and a record with an id; a changed log is caught by the check</title>
+<desc id="mc-d">Small rows of an access log slide along a belt through a box that holds the program into a digest file, and a record box stamped with a SHA-256 id. Below, the log has changed and the check refuses with a rule tag naming the file.</desc>
+<line class="belt" x1="20" y1="130" x2="540" y2="130"/>
+<g class="pkt"><rect class="row" x="22" y="118" width="30" height="8" rx="3"/><rect class="row" x="22" y="130" width="30" height="8" rx="3"/></g>
+<g class="pkt b"><rect class="row" x="22" y="118" width="30" height="8" rx="3"/><rect class="row" x="22" y="130" width="30" height="8" rx="3"/></g>
+<g class="pkt c"><rect class="row" x="22" y="118" width="30" height="8" rx="3"/><rect class="row" x="22" y="130" width="30" height="8" rx="3"/></g>
+<rect class="box" x="10" y="40" width="70" height="50" rx="10"/><text x="45" y="70" text-anchor="middle">log</text>
+<rect class="box" x="130" y="70" width="110" height="120" rx="12"/><text x="185" y="100" text-anchor="middle">hash</text><text class="sm" x="185" y="170" text-anchor="middle">program, in</text>
+<rect class="box" x="270" y="70" width="110" height="120" rx="12"/><text x="325" y="100" text-anchor="middle">run</text><text class="sm" x="325" y="170" text-anchor="middle">no shell</text>
+<rect class="okb" x="420" y="60" width="130" height="140" rx="12"/><text x="485" y="92" text-anchor="middle">record</text>
+<g class="stamp"><rect x="436" y="130" width="98" height="26" rx="6" fill="none" stroke="var(--good)" stroke-width="2"/><text class="sm" x="485" y="148" text-anchor="middle" style="fill:var(--good)">id 5b1c…</text></g>
+<g class="refuse"><rect class="nob" x="40" y="226" width="250" height="82" rx="10"/><text class="sm" x="54" y="250" style="fill:var(--bad)">refused</text><text class="sm" x="54" y="270">flow.check.inputs-changed</text><text class="sm" x="54" y="290">path: access.log</text>
+<path d="M290 267H340" stroke="var(--good)" stroke-width="2" fill="none"/><rect class="okb" x="340" y="248" width="150" height="40" rx="8"/><text class="sm" x="415" y="272" text-anchor="middle">run the step again</text></g>
+</svg></div>
+</div>
+
+<div class="wrap">
+<h2 class="sr">What it does</h2>
+<div class="trio">
+  <div class="card reveal"><div class="art"><div class="say"><span class="e">{"rule":"flow.check.inputs-changed"}</span><span class="f">path: access.log</span></div></div><h3>It tells you what drifted</h3><p>A check names the program, the input or the output that no longer matches, with both digests.</p></div>
+  <div class="card reveal"><div class="art"><div class="plats"><div>dir A<b>805f…</b></div><div>dir B<b>805f…</b></div><div>again<b>805f…</b></div></div></div><h3>The same step, the same bytes</h3><p>A record holds no time, host, path or payload: the same step is the same file anywhere.</p></div>
+  <div class="card reveal"><div class="art"><div class="file"><i></i><i></i><i></i><em>check 9c40e1…</em></div></div><h3>One checked file</h3><p>A record ends in a SHA-256 of every byte before it: a flipped byte is refused.</p></div>
+</div>
+</div>
+
+<section class="sec" id="watch"><div class="wrap">
+  <h2>Watch it run</h2>
+  <p class="lead">Three runs of the real programs on a small access log. Nothing is invented: every line below was printed by the built binaries.</p>
+  <div class="replay" role="group" aria-labelledby="replay-t">
+    <div class="bar"><i></i><i></i><i></i> <span id="replay-t">replayed here, from a real run</span> <button id="replay" type="button" hidden>&#8635; replay</button></div>
+<!-- gen:replay -->
+<div class="tabs" role="tablist" aria-label="Replayed runs" hidden>
+<button type="button" role="tab" id="tab-record" aria-controls="screen-record" aria-selected="true" tabindex="0">Record a step and check it</button>
+<button type="button" role="tab" id="tab-stale" aria-controls="screen-stale" aria-selected="false" tabindex="-1">A digest that went stale</button>
+<button type="button" role="tab" id="tab-refuse" aria-controls="screen-refuse" aria-selected="false" tabindex="-1">Refusals are data</button>
+</div>
+<div class="plabel">Record a step and check it</div>
+<pre id="screen-record" class="screen" role="tabpanel" aria-labelledby="tab-record" tabindex="0"><span class="d"># a log digest: the step reads access.log and writes digest.txt; `digest` is a program of the programs directory</span>
+<span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","file":"62994be4a983….4dbf52da6b0d….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
+<span class="a">$ cat digest.txt</span>
+<span>      4 10.0.0.7
+      2 10.0.0.3
+      2 10.0.0.9</span>
+<span class="d"># the same step again is the same record: nothing is written</span>
+<span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","file":"62994be4a983….4dbf52da6b0d….json","written":false},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0, …</span>
+<span class="d"># the records, and a check that the program and every declared file still match (ID is the id above)</span>
+<span class="a">$ flow-records list records</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":1},"meta":{"version":"0.1.0"}}</span>
+<span class="a">$ flow-records check records ID</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span></pre>
+<div class="plabel">A digest that went stale</div>
+<pre id="screen-stale" class="screen" role="tabpanel" aria-labelledby="tab-stale" tabindex="0"><span class="d"># two more requests are appended to the log</span>
+<span class="a">$ printf '10.0.0.3 GET /docs 200\n10.0.0.3 GET /docs 200\n' &gt;&gt; access.log</span>
+<span class="a">$ flow-records check records ID</span>
+<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
+<span class="b"># exit status 5</span>
+<span class="d"># the step on the new log is another step: another id, another record. The first stays as it was</span>
+<span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","file":"9d213d6c4933….7623f0aec3b2….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
+<span class="a">$ flow-records list records</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program":"digest","args":2,"exit":0,"deterministic":true},{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":2},"meta":{"version":"0.1.0"}}</span>
+<span class="a">$ flow-records check records ID2</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span>
+<span class="d"># the old record is still a true statement about the old log, and says so</span>
+<span class="a">$ flow-records check records ID</span>
+<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
+<span class="b"># exit status 5</span></pre>
+<div class="plabel">Refusals are data</div>
+<pre id="screen-refuse" class="screen" role="tabpanel" aria-labelledby="tab-refuse" tabindex="0"><span class="d"># a step whose program fails: the record is written, and the answer is a refusal</span>
+<span class="a">$ flow step --record records -- sh -c 'exit 3'</span>
+<span class="b">{"ok":false,"error":{"rule":"flow.step.failed","message":"the program ended with a non-zero status or a signal","hint":"the record was written; use --allow-failure for a step whose job is to say no", …}}</span>
+<span class="b"># exit status 8</span>
+<span class="d"># a step whose job is to say no: --allow-failure</span>
+<span class="a">$ flow step --record records --allow-failure -- sh -c 'exit 3'</span>
+<span class="g">{"ok":true,"data":{"record":{…},"outcome":{"exit":3, …}}}</span>
+<span class="d"># a deadline: the program is killed, and the timeout is recorded</span>
+<span class="a">$ flow step --record records --timeout-ms 300 -- sleep 5</span>
+<span class="b">{"ok":false,"error":{"rule":"limit.timeout","message":"the program ran past --timeout-ms and was killed","hint":"raise --timeout-ms, up to 600000, or give the program less to do; the timeout is recorded", …}}</span>
+<span class="b"># exit status 8</span>
+<span class="d"># a claim that is false: declared deterministic, and the program prints its own process id</span>
+<span class="a">$ flow step --record records --deterministic -- sh -c 'echo $$'      (twice)</span>
+<span class="b">{"ok":false,"error":{"rule":"flow.step.not-deterministic","message":"a step declared deterministic gave another outcome than an earlier record of the same inputs","hint":"the declaration is false (or an input was left undeclared); nothing was written; compare the records, or drop --deterministic to keep every outcome", …}}</span>
+<span class="b"># exit status 5</span>
+<span class="d"># a program that is not in the directory</span>
+<span class="a">$ flow step --record records -- rm</span>
+<span class="b">{"ok":false,"error":{"rule":"flow.program-not-found","message":"the programs directory holds no program of that name","hint":"the deployer chooses what is in the directory; introspect and the deployment say what it holds", …}}</span>
+<span class="b"># exit status 3</span></pre>
+<!-- /gen:replay -->
+  </div>
+  <p class="fine">Recorded from real runs, not a live session. What is cut is said in the small print.</p>
+</div></section>
+
+<section class="sec" id="how"><div class="wrap">
+  <h2>How it works</h2>
+  <p class="lead">A step is hashed, run once under limits and written down. The record is read back by a second program that cannot run anything.</p>
+  <div class="flow" tabindex="0" aria-label="Flow diagram, scrolls sideways on a narrow screen">
+  <svg viewBox="0 0 760 330" role="img" aria-labelledby="flow-t flow-d">
+    <title id="flow-t">flow writes a record; flow-records reads and checks it</title>
+    <desc id="flow-d">The step names a program, its input files and its output files. flow hashes the program and the inputs, starts the program from one baked directory with no shell, hashes the outputs and writes one record. flow-records lists, shows and checks records against the files on disk. If something no longer matches, or a limit is hit, the answer is a refusal with a rule tag.</desc>
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+      <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--bad)"/></marker>
+    </defs>
+    <rect class="box" x="10" y="30" width="130" height="64" rx="10"/><text x="75" y="58" text-anchor="middle">The step</text><text class="sm" x="75" y="78" text-anchor="middle">program, --in, --out</text>
+    <rect class="boxa" x="180" y="30" width="150" height="64" rx="10"/><text x="255" y="58" text-anchor="middle">flow step</text><text class="sm" x="255" y="78" text-anchor="middle">hash, run, hash</text>
+    <rect class="boxa" x="370" y="30" width="170" height="64" rx="10"/><text x="455" y="58" text-anchor="middle">The program</text><text class="sm" x="455" y="78" text-anchor="middle">from one baked directory</text>
+    <rect class="ok" x="590" y="30" width="160" height="64" rx="10"/><text x="670" y="58" text-anchor="middle">One record</text><text class="sm" x="670" y="78" text-anchor="middle">ends in a SHA-256</text>
+    <path class="arrow dash" d="M140 62H178"/><path class="arrow dash" d="M330 62H368"/><path class="arrow dash" d="M540 62H588"/>
+    <path class="line" d="M670 94V122M390 122H670"/>
+    <path class="arrow dash" d="M390 122V148"/><path class="arrow dash" d="M530 122V148"/><path class="arrow dash" d="M670 122V148"/>
+    <rect class="box" x="325" y="150" width="130" height="54" rx="10"/><text x="390" y="174" text-anchor="middle">list</text><text class="sm" x="390" y="193" text-anchor="middle">what is recorded</text>
+    <rect class="box" x="465" y="150" width="130" height="54" rx="10"/><text x="530" y="174" text-anchor="middle">show</text><text class="sm" x="530" y="193" text-anchor="middle">one record</text>
+    <rect class="box" x="605" y="150" width="130" height="54" rx="10"/><text x="670" y="174" text-anchor="middle">check</text><text class="sm" x="670" y="193" text-anchor="middle">against the disk</text>
+    <path class="arrow bad dash" d="M255 94V256"/>
+    <text class="smb" x="265" y="236">a limit, a failure, a lie</text>
+    <rect class="no" x="150" y="258" width="330" height="58" rx="10"/><text x="315" y="282" text-anchor="middle">Refused, with data</text><text class="sm" x="315" y="302" text-anchor="middle">a rule tag, an exit code, a hint</text>
+    <path class="arrow bad dash" d="M150 287H75V98"/>
+    <text class="smb" x="86" y="200">fix the step,</text><text class="smb" x="86" y="217">then run it again</text>
+  </svg>
+  </div>
+  <p class="fine sr">In words: the step names a program and its files. <code>flow step</code> hashes the program and the inputs, runs the program from one baked directory, hashes the outputs and writes one record. <code>flow-records</code> lists, shows and checks records. A limit that is hit, a failed program or a false claim is refused with a rule tag, an exit code and a hint.</p>
+</div></section>
+
+<section class="sec" id="commands"><div class="wrap">
+  <h2>Two programs, four verbs</h2>
+  <p class="lead"><code>flow</code> starts programs and holds a clock for the deadline only. <code>flow-records</code> only reads. Neither is a scheduler, a shell or a sandbox.</p>
+  <ul class="chips" aria-label="The verbs"><li>flow step</li><li>flow-records list</li><li>flow-records show</li><li>flow-records check</li></ul>
+</div></section>
+
+<section class="sec" id="results"><div class="wrap">
+  <h2>Measured, not promised</h2>
+  <div class="nums">
+    <div class="n reveal"><b><span data-n="damaged">2,136</span></b><span>damaged copies of a record, every one refused as <code>flow.record.damaged</code></span></div>
+    <div class="n reveal"><b><span data-n="fixtures">28</span></b><span>refusal fixtures, one per registered rule of the two programs</span></div>
+    <div class="n reveal"><b><span data-n="mutants">13</span> / <span data-n="mutants">13</span></b><span>deliberate faults caught by the gates</span></div>
+    <div class="n reveal"><b><span data-n="rules">37</span></b><span>named refusals, each with a rule tag and an exit code</span></div>
+  </div>
+</div></section>
+
+<section class="sec" id="try"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="lead">Build it from source. You need <code>git</code>, Rust, <code>clang</code> and <code>python3</code>, and the network for the clones and <code>cancho install</code>. The programs a step may start are the files of one directory baked into the binary, so you build your own.</p>
+<pre class="code" tabindex="0" id="build-cmds"><code>git clone https://github.com/alpibrusl/cancho                     # the compiler, at the commit cancho.toml names
+git clone https://github.com/alpibrusl/cancho-flow &amp;&amp; cd cancho-flow
+REV=$(sed -n 's/^cancho *= *"\([0-9a-f]*\)".*/\1/p' cancho.toml)  # the compiler these sources need
+(cd ../cancho &amp;&amp; git fetch -q origin &amp;&amp; git checkout "$REV" &amp;&amp; cargo build --release -p cancho)
+export CANCHO=$PWD/../cancho/target/release/cancho PATH=$PWD/../cancho/target/release:$PATH
+cancho install                                                    # fetches the pinned contract (network)
+python3 scripts/flow_build.py --programs /opt/agent/programs --out build/flow --bin flow
+python3 scripts/flow_build.py --programs /opt/agent/programs --out build/flow-records --bin flow-records</code></pre>
+  <p class="fine">Then run the commands above, with your own programs in the directory. <code>scripts/check.sh</code> runs the authority check, the gates and every mutant.</p>
+</div></section>
+
+<section class="sec" id="docs"><div class="wrap">
+  <h2>Go deeper</h2>
+  <ul class="chips pills"><li><a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md">Design</a></li><li><a href="https://github.com/alpibrusl/cancho-flow/blob/main/README.md">README</a></li><li><a href="https://github.com/alpibrusl/cancho-flow">Repository</a></li></ul>
+
+  <details class="print" id="print"><summary>The small print: what is checked, what is not, and what is missing</summary>
+  <div class="cards">
+    <div class="card"><h3>The same bytes</h3><p>A record is a pure function of its inputs: the same step in another directory is the same file. The gate runs it twice and compares the bytes.</p></div>
+    <div class="card"><h3>Refusals are data</h3><p>One JSON line with a rule tag, an exit code and a hint. A program that fails, a deadline, a missing output and a false <code>--deterministic</code> claim each stop the step.</p></div>
+    <div class="card"><h3>Authority you can read</h3><p>What each program may touch is derived by the compiler (<span data-n="labels_flow">16</span> labels for <code>flow</code>, <span data-n="labels_records">7</span> for <code>flow-records</code>) and checked against a committed manifest. <code>flow-records</code> has no <code>exec</code>, no clock and no write.</p></div>
+  </div>
+  <p class="fine">Real output, replayed; it is not a live session. The demo is a log digest: <code>scripts/site/digest</code> counts the first column of <code>access.log</code>. What is cut: a hash shows 12 of its 64 digits, a timing is shown as N, and the long refusal lines keep the rule, message and hint (marked &hellip;). The programs run with an empty environment except <code>PATH</code>, so the output does not depend on the machine&rsquo;s locale.</p>
+  <p class="fine"><strong>Limits.</strong> <code>flow</code> records what the caller declares: it cannot see a file a program reads or writes without being told, and a secret in an argument is recorded (keep secrets in files named with <code>--in</code>, where only a hash is recorded). It is tested on Linux x86-64 only, so &ldquo;the same bytes on every platform&rdquo; is open. Not built yet: <code>replay</code>, <code>compare</code>, memoisation, <code>--keep-output</code> and plans (<a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md">design, section 11</a>). One user counts so far. No speed is claimed.</p>
+  </details>
+</div></section>
+
+<section id="agent-view" aria-label="This page as an agent reads it"><div class="wrap">
+  <div class="bar"><h2 style="margin:0">For agents</h2><span>the same facts as the page, as Markdown, written by scripts/site.py</span><a href="agents.md">agents.md</a><a href="llms.txt">llms.txt</a></div>
+  <pre id="agent-full" tabindex="0">Loading agents.md …</pre>
+</div></section>
+
+</main>
+
+<footer><div class="wrap">
+  <span class="brandline">cancho-flow</span><span>EUPL-1.2</span><span>written in <a href="https://github.com/alpibrusl/cancho">cancho</a></span>
+  <a href="https://github.com/alpibrusl/cancho-flow">Repository</a><a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md">Design</a>
+</div></footer>
+
+<script src="assets/home.js"></script>
+<script>
+(function () {
+  var box = document.querySelector(".replay"), btn = document.getElementById("replay");
+  var tabs = box ? box.querySelectorAll("[role=tab]") : [], pres = box ? box.querySelectorAll("pre.screen") : [];
+  if (!btn || !tabs.length || tabs.length !== pres.length) { return; }
+  var logs = Array.prototype.map.call(pres, function (p) { return Array.prototype.map.call(p.children, function (s) { return [s.className, s.textContent]; }); });
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+  function span(c, t) { return "<span" + (c ? ' class="' + c + '"' : "") + ">" + esc(t) + "</span>"; }
+  var timer = null, cur = 0, reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function full(i) { pres[i].innerHTML = logs[i].map(function (l) { return span(l[0], l[1]); }).join("\n"); pres[i].removeAttribute("aria-busy"); }
+  function show(i, focus) {
+    clearTimeout(timer); cur = i;
+    Array.prototype.forEach.call(tabs, function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); t.tabIndex = k === i ? 0 : -1; pres[k].hidden = k !== i; });
+    if (focus) { tabs[i].focus(); }
+    if (reduce) { full(i); } else { play(i); }
+  }
+  function play(i) {
+    var lines = logs[i], pre = pres[i], n = 0, j = 0, html = "";
+    clearTimeout(timer); pre.style.minHeight = ""; full(i); pre.style.minHeight = pre.offsetHeight + "px";
+    pre.innerHTML = ""; pre.setAttribute("aria-busy", "true");
+    (function tick() {
+      if (n >= lines.length) { pre.removeAttribute("aria-busy"); return; }
+      var l = lines[n], step = l[0] === "a" ? 3 : 16;
+      j += step;
+      pre.innerHTML = html + span(l[0], l[1].slice(0, j));
+      if (j >= l[1].length) { html += span(l[0], l[1]) + "\n"; n++; j = 0; timer = setTimeout(tick, l[0] === "d" ? 300 : 420); }
+      else { timer = setTimeout(tick, 12); }
+    })();
+  }
+  box.classList.add("js"); box.querySelector("[role=tablist]").hidden = false; btn.hidden = false;
+  Array.prototype.forEach.call(tabs, function (t, k) {
+    t.addEventListener("click", function () { show(k, false); });
+    t.addEventListener("keydown", function (ev) {
+      var d = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+      if (d) { ev.preventDefault(); show((k + d + tabs.length) % tabs.length, true); }
+    });
+  });
+  btn.addEventListener("click", function () { show(cur, false); });
+  show(0, false);
+})();
+</script>
+</body>
+</html>

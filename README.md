@@ -2,6 +2,8 @@
 
 **A run is a claim you can check.** `flow` starts a program as a recorded step: what it was given, which program ran, what came out, as a canonical, content-addressed record that can be read back, checked against the files on disk, run again and compared. Later, a plan of steps whose conditions are data. It knows nothing of the programs it starts: a compiler, `ml`, `make`, a shell script. It is a command line an agent can read, built the way [cancho-ml](https://github.com/alpibrusl/cancho-ml), [cancho-table](https://github.com/alpibrusl/cancho-table) and [cancho-stats](https://github.com/alpibrusl/cancho-stats) are, on the `contract` of [cancho-tools](https://github.com/alpibrusl/cancho-tools).
 
+> **Landing page:** [alpibrusl.github.io/cancho-flow](https://alpibrusl.github.io/cancho-flow/) (`docs/index.html`; GitHub Pages must be enabled for `main` and `/docs`). `python3 scripts/site.py` regenerates its program output and figures; `scripts/check_landing.py` checks it.
+
 > **Kind:** cli · **Stage:** built (M1: `step`, `list`, `show`, `check`)
 
 **Status: early.** `flow step` runs one program as a recorded step and `flow-records` reads the records back; replay, comparison, memoisation and plans are designed and not built ([`docs/design.md`](docs/design.md) section 11). The design says what it is and what it refuses to become (not a scheduler, not a shell, not a sandbox), and section 13 says what the gates measured: a record is the same bytes in any directory, **2,136 damaged copies of a record are all refused**, every refusal rule has a fixture, every bound is refused before the child starts, and **13 of 13 mutants are killed**.
