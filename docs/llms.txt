@@ -1,0 +1,7 @@
+# cancho-flow
+
+> A run is a claim you can check: one program, recorded as a canonical content-addressed record, read back and checked.
+
+- [This page, as Markdown](https://alpibrusl.github.io/cancho-flow/agents.md): commands, authority, rules, limits
+- [Design](https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md): decisions, gates and results
+- [Repository](https://github.com/alpibrusl/cancho-flow)
