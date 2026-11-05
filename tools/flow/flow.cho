@@ -32,21 +32,21 @@ import toolbox.out;
 import toolbox.path;
 import toolbox.place;
 import toolbox.text;
+import flow.argvp;
+import flow.plan;
+import flow.runplan;
+import flow.stepper;
 import flow.canon;
 import flow.config;
 import flow.files;
 import flow.scan;
 
-fn extra() -> [] &static [byte] {
-    return "flow.verb|2|never|the first operand is not a verb this program has (it has `step`);flow.program-name|2|never|the program is not one plain name (it is empty, `.`, `..` or has a `/`);flow.program-not-found|3|never|the programs directory holds no program of that name;flow.spawn-failed|8|never|the operating system could not start the program or its channels;flow.args.not-utf8|2|never|an argument, a declared path or the program name is not UTF-8, and a record holds only text;flow.args.too-many|2|never|more arguments than a record may hold;flow.files.too-many|2|never|more declared files than a record may hold;flow.record.too-many|8|never|the record directory already holds the most records;flow.record.damaged|8|never|a file already under this record's name is not this record;flow.step.failed|8|never|the program ended with a non-zero status or a signal (the record was written);flow.step.output-missing|8|never|the program ended with status 0 but did not leave a file declared with --out (the record was written);flow.step.not-deterministic|5|never|a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written);limit.timeout|8|never|the program ran past --timeout-ms and was killed;limit.output-too-large|8|never|the program wrote more than --max-output to one stream and was killed";
-}
-
 fn flag_table() -> [] &static [byte] {
-    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);max-stdin||nat|none|1048576|the most standard input accepted with --stdin (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
+    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);stdin-file||text|path-read||a file beneath --root given to the program as its standard input (hashed and recorded as --stdin does; at most --max-stdin bytes);stdout-file||text|path-write||a file beneath --root the program's standard output is written to, atomically, after it ends (it must also be listed in --out, so it is hashed into the outcome as every output is; it is not written when the program was killed);max-steps||nat|none|64|the most steps `run` accepts in a plan (ceiling 1024);dry-run||bool|none||`run` checks the plan whole and prints the program and arguments of every step, and starts nothing;resume||text|path-read||`run` continues the plan whose run stopped, from the step it stopped at: the plan record (its name, in --record) that run answered as `resume.record`;max-stdin||nat|none|1048576|the most standard input accepted with --stdin or --stdin-file (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
 }
 
 fn tool() -> [] describe.Tool {
-    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
+    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow run [--root DIR] --record DIR [--max-steps N] [--dry-run] [--resume NAME] [--max-stdin N] [--timeout-ms N] [--max-output N] [--format json|text] PLAN\nflow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step, run;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.plan.syntax;flow.plan.empty;flow.plan.too-many-steps;flow.plan.duplicate-id;flow.plan.order;flow.plan.output-collision;flow.plan.resume;flow.stdin.conflict;flow.stdout.undeclared;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: stepper.extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
 }
 
 fn built() -> [] describe.Built {
@@ -70,578 +70,109 @@ fn flag_problem[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], messag
     return fail.add(heap, e, w);
 }
 
-// A plain name: not empty, not `.` or `..`, no `/`.
-fn plain_name[&n](name: &n [byte]) -> [] bool {
-    if len(name) == 0 || bytes.equal(name, ".") || bytes.equal(name, "..") {
-        return false;
-    }
-    var i = 0;
-    while i < len(name) {
-        if int_of(name[i]) == '/' {
-            return false;
-        }
-        i = i + 1;
-    }
-    return true;
-}
-
-// ---- starting the program ------------------------------------------------
-
-// Start the program and watch it (run.cho's `execute`).
-fn execute[&h, &x, &c, &d, &p, &a, &e, &n](heap: &!h Heap, exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, dir: &d Dir, path: &p [byte], argv: &a [byte], env: &e [byte], input: &n [byte], most: int, timeout: int) -> [heap, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, buffer.Buffer, process.Ran, bool) {
-    match process.channels_with_errors() {
-        process.ChannelsWithErrors::Failed(errno) => {
-            return (buffer.empty(heap, 1), buffer.empty(heap, 1), process.Ran::Failed(errno), false);
-        }
-        process.ChannelsWithErrors::Ok(to_child, child_in, from_child, child_out, from_errors, child_errors) => {
-            match exec_spawn_in(exec, dir, path, argv, env, Stdio::Pipe(child_in), Stdio::Pipe(child_out), Stdio::Pipe(child_errors)) {
-                Spawned::Failed(errno) => {
-                    pipe_close(to_child);
-                    pipe_close(from_child);
-                    pipe_close(from_errors);
-                    return (buffer.empty(heap, 1), buffer.empty(heap, 1), process.Ran::Failed(errno), false);
-                }
-                Spawned::Ok(child) => {
-                    let (out, err, ran) = process.capture_both(heap, clock, child, to_child, from_child, from_errors, input, most, most, timeout);
-                    return (out, err, ran, true);
-                }
-            }
-        }
-    }
-}
-
-fn start_dir[&f, &r](fs: &f Fs(""), root: &r [byte]) -> [fs_read("")] DirOpened {
-    if len(root) == 0 {
-        return open_dir(fs, ".");
-    }
-    return open_dir(fs, root);
-}
-
-// ---- the record directory ------------------------------------------------
-
-// What the record directory holds: how many records, and whether a record of this `id` with another name (another outcome) is there.
-struct Held {
-    records: int,
-    same_id_other_outcome: bool,
-    same_name: bool,
-    failed: int,
-}
-
-fn json_name[&n](name: &n [byte]) -> [] bool {
-    return len(name) > 5 && bytes.equal(name[len(name) - 5..len(name)], ".json");
-}
-
-fn survey[&h, &d, &i, &f](heap: &!h Heap, dir: &d Dir, id: &i [byte], file: &f [byte]) -> [heap, dir_read] Held {
-    let names = dirs.list(heap, dir, 1002);
-    var held = Held { records: 0, same_id_other_outcome: false, same_name: false, failed: 0 };
-    borrow names as &n in {
-        held = Held { records: 0, same_id_other_outcome: false, same_name: false, failed: dirs.failed(n) };
-        var k = 0;
-        while k < dirs.count(n) {
-            let name = dirs.name(n, k);
-            if json_name(name) {
-                held = Held { records: held.records + 1, same_id_other_outcome: held.same_id_other_outcome, same_name: held.same_name, failed: held.failed };
-                if bytes.equal(name, file) {
-                    held = Held { records: held.records, same_id_other_outcome: held.same_id_other_outcome, same_name: true, failed: held.failed };
-                } else if bytes.starts_with(name, id) && len(name) > len(id) && int_of(name[len(id)]) == '.' {
-                    held = Held { records: held.records, same_id_other_outcome: true, same_name: held.same_name, failed: held.failed };
-                }
-            }
-            k = k + 1;
-        }
-    }
-    dirs.drop(heap, names);
-    return held;
-}
-
-fn rule_error[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], key: &static [byte], value: int) -> [heap] fail.Errors {
-    var w = fail.open_in(heap, extra(), rule, message, hint);
-    w = fail.no_repair(heap, w);
-    w = fail.detail_open(heap, w);
-    w = json.put_key(heap, w, key);
-    w = json.put_int(heap, w, value);
-    return fail.add(heap, e, w);
-}
-
-// ---- the step ------------------------------------------------------------
-
-// Everything between the checked flags and the answer. Answers the data of the answer (empty when no record was made), the program's
-// standard output and standard error (for --format text), and the errors.
-fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, records: &d Dir, root: &r [byte], name: &n [byte], input: &a [byte], in_list: &l1 [byte], out_list: &l2 [byte], deterministic: bool, allow_failure: bool, answer_output: bool, timeout: int, most: int, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, buffer.Buffer, buffer.Buffer, fail.Errors) {
-    var e = errs;
+fn body_run[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, io: &!i Io, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll, io_write, err_write] int {
     let table = flag_table();
-    var payload = buffer.empty(heap, 1);
-    var out_text = buffer.empty(heap, 1);
-    var err_text = buffer.empty(heap, 1);
-
-    // What ran: the program's own file.
-    let (program_hex, program_errno, program_size) = files.hash_program(heap, fs, name);
-    if program_errno == 2 {
-        var w = fail.open_in(heap, extra(), "flow.program-not-found", "the programs directory holds no program of that name", "the deployer chooses what is in the directory; introspect and the deployment say what it holds");
-        w = fail.no_repair(heap, w);
-        w = fail.detail_open(heap, w);
-        w = json.put_key(heap, w, "program");
-        w = text.put(heap, w, name);
-        e = fail.add(heap, e, w);
-    } else if program_errno != 0 {
-        // The program is in the directory but its file could not be read to be recorded (a link that loops, no permission): it cannot be
-        // started either, so this is the same refusal as a failed start, with the errno. (`io.*` would say the path is a symlink the tool does
-        // not follow, which is not true of the programs directory.)
-        var w = fail.open_in(heap, extra(), "flow.spawn-failed", "the program's file could not be read to be recorded, so it cannot be started", "detail.errno says why (a link that loops, no permission); nothing ran and no record was written");
-        w = fail.no_repair(heap, w);
-        w = fail.detail_open(heap, w);
-        w = json.put_key(heap, w, "program");
-        w = text.put(heap, w, name);
-        w = json.put_key(heap, w, "errno");
-        w = json.put_int(heap, w, program_errno);
-        e = fail.add(heap, e, w);
+    var e = errs;
+    let text_mode = bytes.equal(cli.text(args, parsed, table, "format"), "text");
+    let timeout = cli.nat(args, parsed, table, "timeout-ms");
+    let most = cli.nat(args, parsed, table, "max-output");
+    let most_in = cli.nat(args, parsed, table, "max-stdin");
+    let max_steps = cli.nat(args, parsed, table, "max-steps");
+    let resume = cli.text(args, parsed, table, "resume");
+    if timeout < 1 || timeout > timeout_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--timeout-ms is from 1 to 600000", "pass a deadline in that range", "--timeout-ms");
     }
-
-    // The declared inputs, hashed before the program starts.
-    var in_json = buffer.empty(heap, 64);
-    var n_in = 0;
-    var k = 0;
-    while k < files.elements(in_list) {
-        let (declared, after) = files.declare(heap, fs, root, files.element(in_list, k), true, e);
-        e = after;
-        let files.Declared { rel, hex, size, errno } = declared;
-        if errno > 0 {
-            borrow rel as &rr in {
-                e = fail.io_error(heap, e, errno, false, buffer.bytes(rr));
-            }
-        } else if errno == 0 {
-            if n_in > 0 {
-                in_json = buffer.push(heap, in_json, byte_of(','));
-            }
-            borrow rel as &rr in {
-                borrow hex as &hx in {
-                    in_json = canon.file(heap, in_json, buffer.bytes(rr), size, buffer.bytes(hx));
-                }
-            }
-            n_in = n_in + 1;
-        }
-        buffer.drop(heap, rel);
-        buffer.drop(heap, hex);
-        k = k + 1;
+    if most < 1 || most > size_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-output is from 1 to 67108864", "pass a cap in that range", "--max-output");
     }
-    // The declared outputs, as paths (hashed after).
-    var out_json = buffer.empty(heap, 64);
-    k = 0;
-    while k < files.elements(out_list) {
-        let (declared, after) = files.declare(heap, fs, root, files.element(out_list, k), false, e);
-        e = after;
-        let files.Declared { rel, hex, size, errno } = declared;
-        if errno == 0 {
-            if k > 0 {
-                out_json = buffer.push(heap, out_json, byte_of(','));
-            }
-            borrow rel as &rr in {
-                out_json = canon.str(heap, out_json, buffer.bytes(rr));
-            }
-        }
-        buffer.drop(heap, rel);
-        buffer.drop(heap, hex);
-        k = k + 1;
+    if most_in > size_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-stdin is above the ceiling", "67108864 is the most this tool holds", "--max-stdin");
     }
+    if max_steps < 1 || max_steps > plan.steps_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-steps is from 1 to 1024", "pass a bound in that range", "--max-steps");
+    }
+    if len(resume) > 0 && (!stepper.plain_name(resume) || !bytes.ends_with(resume, ".plan.json")) {
+        e = flag_problem(heap, e, "args.bad-value", "--resume is the name of a plan record in --record, ending in .plan.json", "pass the `resume.record` of the answer of the run that stopped", "--resume");
+    }
+    if !cli.has(parsed, table, "record") {
+        e = flag_problem(heap, e, "args.missing-operand", "run needs --record, the directory that holds the records", "flow run --record DIR [flags] PLAN", "--record");
+    }
+    if cli.operand_count(parsed) < 2 {
+        e = flag_problem(heap, e, "args.missing-operand", "run takes the PLAN to run", "flow run --record DIR [flags] PLAN", "PLAN");
+    } else if cli.operand_count(parsed) > 2 {
+        e = flag_problem(heap, e, "args.unexpected-value", "run takes one PLAN and nothing after it", "a plan is data: its steps are its lines", "PLAN");
+    }
+    let (root, after_root) = path.root(heap, args, cli.text(args, parsed, table, "root"), cli.value_index(parsed, table, "root"), e);
+    e = after_root;
 
+    var plan_text = buffer.empty(heap, 1);
+    var plan_rel = buffer.empty(heap, 1);
     var refused = false;
     borrow e as &er in {
         refused = fail.count(er) > 0;
     }
-
-    // `inputs`: what determines the outcome, and nothing else.
-    var inputs = buffer.empty(heap, 256);
-    var id = buffer.empty(heap, 1);
     if !refused {
-        inputs = canon.lit(heap, inputs, "{\"program\":{\"name\":");
-        inputs = canon.str(heap, inputs, name);
-        inputs = canon.lit(heap, inputs, ",\"bytes\":");
-        inputs = canon.nat(heap, inputs, program_size);
-        inputs = canon.lit(heap, inputs, ",\"sha256\":\"");
-        borrow program_hex as &ph in {
-            inputs = canon.raw(heap, inputs, buffer.bytes(ph));
-        }
-        inputs = canon.lit(heap, inputs, "\"},\"args\":[");
-        var j = 2;
-        while j < cli.operand_count(parsed) {
-            if j > 2 {
-                inputs = buffer.push(heap, inputs, byte_of(','));
-            }
-            inputs = canon.str(heap, inputs, cli.operand(args, parsed, j));
-            j = j + 1;
-        }
-        inputs = canon.lit(heap, inputs, "],\"stdin\":");
-        if cli.has(parsed, table, "stdin") {
-            let hexin = atomic.sha256_hex(heap, input);
-            borrow hexin as &hx in {
-                inputs = canon.stdin_entry(heap, inputs, len(input), buffer.bytes(hx));
-            }
-            buffer.drop(heap, hexin);
-        } else {
-            inputs = canon.lit(heap, inputs, "null");
-        }
-        inputs = canon.lit(heap, inputs, ",\"in\":[");
-        borrow in_json as &ij in {
-            inputs = canon.raw(heap, inputs, buffer.bytes(ij));
-        }
-        inputs = canon.lit(heap, inputs, "],\"out\":[");
-        borrow out_json as &oj in {
-            inputs = canon.raw(heap, inputs, buffer.bytes(oj));
-        }
-        inputs = canon.lit(heap, inputs, "],\"deterministic\":");
-        inputs = canon.boolean(heap, inputs, deterministic);
-        inputs = canon.lit(heap, inputs, ",\"limits\":{\"timeout_ms\":");
-        inputs = canon.nat(heap, inputs, timeout);
-        inputs = canon.lit(heap, inputs, ",\"max_output\":");
-        inputs = canon.nat(heap, inputs, most);
-        inputs = canon.lit(heap, inputs, "},\"env\":\"fixed\"}");
-        borrow inputs as &ib in {
-            buffer.drop(heap, id);
-            id = atomic.sha256_hex(heap, buffer.bytes(ib));
-        }
-        // The record bound is checked before the program starts.
-        var held_records = 0;
-        borrow id as &idr in {
-            let held = survey(heap, records, buffer.bytes(idr), "");
-            held_records = held.records;
-            if held.failed != 0 {
-                e = fail.io_error(heap, e, held.failed, false, "the record directory");
+        borrow root as &rt0 in {
+            let (data, errno, big, rel, after) = files.read_declared(heap, fs, buffer.bytes(rt0), cli.operand(args, parsed, 1), plan.most_plan_bytes(), e);
+            e = after;
+            buffer.drop(heap, plan_text);
+            plan_text = data;
+            buffer.drop(heap, plan_rel);
+            plan_rel = rel;
+            if errno > 0 {
+                e = fail.io_error(heap, e, errno, false, cli.operand(args, parsed, 1));
+            } else if big {
+                e = fail.simple(heap, e, "limit.input-too-large", "the plan is larger than 1048576 bytes", "split the plan: a plan is a list of steps, and a day's is about ten", "", "");
             }
         }
-        if held_records >= config.most_records() {
-            e = rule_error(heap, e, "flow.record.too-many", "the record directory already holds the most records", "a directory holds at most 1000 records; move the old ones (an archive) or use another --record", "most", config.most_records());
-        }
-        borrow e as &er2 in {
-            refused = fail.count(er2) > 0;
+        borrow e as &er1 in {
+            refused = fail.count(er1) > 0;
         }
     }
 
+    var payload = buffer.empty(heap, 1);
     if !refused {
-        var full = buffer.empty(heap, 64);
-        full = buffer.append(heap, full, config.programs());
-        full = buffer.push(heap, full, byte_of('/'));
-        full = buffer.append(heap, full, name);
-        var list = process.argv(heap, 128);
-        var q = 2;
-        while q < cli.operand_count(parsed) {
-            let (added, unused) = process.add(heap, list, cli.operand(args, parsed, q));
-            list = added;
-            q = q + 1;
-        }
-        var env = process.argv(heap, 64);
-        var assignment = buffer.empty(heap, 64);
-        assignment = buffer.append(heap, assignment, "PATH=");
-        assignment = buffer.append(heap, assignment, config.programs());
-        borrow assignment as &asg in {
-            let (added, unused) = process.add(heap, env, buffer.bytes(asg));
-            env = added;
-        }
-        buffer.drop(heap, assignment);
-
-        var code = 0 - 1;
-        var signal = 0 - 1;
-        var timed_out = false;
-        var killed = 0;
-        var failure = 0;
-        var did_start = false;
-        var millis = 0;
-        match start_dir(fs, root) {
-            DirOpened::Failed(errno) => {
-                e = fail.io_error(heap, e, errno, false, root);
-            }
-            DirOpened::Ok(directory) => {
-                var dir = directory;
-                let started = clock_ms(clock);
-                borrow dir as &dd in {
-                    borrow full as &fp in {
-                        borrow list as &l in {
-                            borrow env as &ev in {
-                                let (out, err, ran, ok) = execute(heap, exec, clock, dd, buffer.bytes(fp), process.list(l), process.list(ev), input, most, timeout);
-                                did_start = ok;
-                                buffer.drop(heap, out_text);
-                                buffer.drop(heap, err_text);
-                                out_text = out;
-                                err_text = err;
-                                match ran {
-                                    process.Ran::Code(num) => {
-                                        code = num;
-                                    }
-                                    process.Ran::Signaled(bit) => {
-                                        signal = bit;
-                                    }
-                                    process.Ran::TimedOut => {
-                                        timed_out = true;
-                                        killed = 1;
-                                    }
-                                    process.Ran::TooMuch => {
-                                        killed = 2;
-                                    }
-                                    process.Ran::Failed(errno) => {
-                                        failure = errno;
+        borrow root as &rt in {
+            let (record_at, after_record) = path.operand(heap, args, buffer.bytes(rt), cli.value_index(parsed, table, "record"), e);
+            e = after_record;
+            borrow record_at as &ra in {
+                if path.ok(ra) {
+                    match place.open_directory(fs, buffer.bytes(rt), path.shown(ra), path.full(ra)) {
+                        DirOpened::Failed(errno) => {
+                            e = fail.io_error(heap, e, errno, true, path.shown(ra));
+                        }
+                        DirOpened::Ok(opened) => {
+                            var records = opened;
+                            borrow records as &rd in {
+                                borrow plan_text as &ptb in {
+                                    borrow plan_rel as &prb in {
+                                        let (pl, e2) = runplan.run_plan(heap, fs, exec, clock, rd, buffer.bytes(rt), buffer.bytes(prb), buffer.bytes(ptb), max_steps, cli.has(parsed, table, "dry-run"), resume, timeout, most, most_in, e);
+                                        buffer.drop(heap, payload);
+                                        payload = pl;
+                                        e = e2;
                                     }
                                 }
                             }
+                            dir_close(records);
                         }
                     }
-                }
-                dir_close(dir);
-                millis = clock_ms(clock) - started;
-            }
-        }
-        process.drop(heap, list);
-        process.drop(heap, env);
-        buffer.drop(heap, full);
-
-        if !did_start || failure != 0 {
-            var w = fail.open_in(heap, extra(), "flow.spawn-failed", "the operating system could not start the program", "the program exists but could not be started; detail.errno says why (permissions, a missing interpreter, too many processes); nothing ran and no record was written");
-            w = fail.no_repair(heap, w);
-            w = fail.detail_open(heap, w);
-            w = json.put_key(heap, w, "program");
-            w = text.put(heap, w, name);
-            w = json.put_key(heap, w, "errno");
-            w = json.put_int(heap, w, failure);
-            e = fail.add(heap, e, w);
-        } else {
-            // The outcome: what the program did, and the declared outputs now.
-            var outs_json = buffer.empty(heap, 64);
-            var missing_any = false;
-            var out_failed = false;
-            k = 0;
-            while k < files.elements(out_list) {
-                let (declared, after) = files.declare(heap, fs, root, files.element(out_list, k), true, e);
-                e = after;
-                let files.Declared { rel, hex, size, errno } = declared;
-                if k > 0 {
-                    outs_json = buffer.push(heap, outs_json, byte_of(','));
-                }
-                borrow rel as &rr in {
-                    if errno == 2 {
-                        outs_json = canon.missing(heap, outs_json, buffer.bytes(rr));
-                        missing_any = true;
-                    } else if errno != 0 {
-                        e = fail.io_error(heap, e, errno, false, buffer.bytes(rr));
-                        out_failed = true;
-                    } else {
-                        borrow hex as &hx in {
-                            outs_json = canon.file(heap, outs_json, buffer.bytes(rr), size, buffer.bytes(hx));
-                        }
-                    }
-                }
-                buffer.drop(heap, rel);
-                buffer.drop(heap, hex);
-                k = k + 1;
-            }
-            var cut_out = false;
-            var cut_err = false;
-            var outcome = buffer.empty(heap, 256);
-            borrow out_text as &ot in {
-                borrow err_text as &et in {
-                    if killed == 2 {
-                        // `capture_both` does not say which stream overran; a stream that holds exactly the cap is reported as cut.
-                        cut_out = buffer.size(ot) >= most;
-                        cut_err = buffer.size(et) >= most;
-                    }
-                    outcome = canon.lit(heap, outcome, "{\"exit\":");
-                    if code < 0 {
-                        outcome = canon.lit(heap, outcome, "null");
-                    } else {
-                        outcome = canon.nat(heap, outcome, code);
-                    }
-                    outcome = canon.lit(heap, outcome, ",\"signal\":");
-                    if signal < 0 {
-                        outcome = canon.lit(heap, outcome, "null");
-                    } else {
-                        outcome = canon.nat(heap, outcome, signal);
-                    }
-                    outcome = canon.lit(heap, outcome, ",\"timed_out\":");
-                    outcome = canon.boolean(heap, outcome, timed_out);
-                    outcome = canon.lit(heap, outcome, ",\"truncated\":{\"stdout\":");
-                    outcome = canon.boolean(heap, outcome, cut_out);
-                    outcome = canon.lit(heap, outcome, ",\"stderr\":");
-                    outcome = canon.boolean(heap, outcome, cut_err);
-                    outcome = canon.lit(heap, outcome, "},\"stdout\":");
-                    let so = atomic.sha256_hex(heap, buffer.bytes(ot));
-                    borrow so as &sx in {
-                        outcome = canon.digest(heap, outcome, buffer.size(ot), buffer.bytes(sx));
-                    }
-                    buffer.drop(heap, so);
-                    outcome = canon.lit(heap, outcome, ",\"stderr\":");
-                    let se = atomic.sha256_hex(heap, buffer.bytes(et));
-                    borrow se as &sx in {
-                        outcome = canon.digest(heap, outcome, buffer.size(et), buffer.bytes(sx));
-                    }
-                    buffer.drop(heap, se);
-                    outcome = canon.lit(heap, outcome, ",\"out\":[");
                 }
             }
-            borrow outs_json as &oj in {
-                outcome = canon.raw(heap, outcome, buffer.bytes(oj));
-            }
-            outcome = canon.lit(heap, outcome, "]}");
-            buffer.drop(heap, outs_json);
-
-            if !out_failed {
-                var rec = buffer.empty(heap, 1);
-                borrow inputs as &ib in {
-                    borrow outcome as &ob in {
-                        buffer.drop(heap, rec);
-                        rec = canon.record(heap, buffer.bytes(ib), buffer.bytes(ob));
-                    }
-                }
-                var written = false;
-                var fname = buffer.empty(heap, 1);
-                var oid_text = buffer.empty(heap, 1);
-                var ok_record = false;
-                borrow rec as &rb in {
-                    let parts = scan.parse(heap, buffer.bytes(rb));
-                    if parts.reason == 0 {
-                        ok_record = true;
-                        buffer.drop(heap, fname);
-                        fname = buffer.empty(heap, 140);
-                        fname = buffer.append(heap, fname, buffer.bytes(rb)[parts.id_at..parts.id_at + 64]);
-                        fname = buffer.push(heap, fname, byte_of('.'));
-                        fname = buffer.append(heap, fname, buffer.bytes(rb)[parts.oid_at..parts.oid_at + 64]);
-                        fname = buffer.append(heap, fname, ".json");
-                        buffer.drop(heap, oid_text);
-                        oid_text = buffer.empty(heap, 64);
-                        oid_text = buffer.append(heap, oid_text, buffer.bytes(rb)[parts.oid_at..parts.oid_at + 64]);
-                    }
-                }
-                if !ok_record {
-                    e = fail.simple(heap, e, "flow.record.damaged", "the record this step just made does not read back as a record", "this is a fault of flow, not of the step; nothing was written", "", "");
-                } else {
-                    var conflict = false;
-                    borrow id as &idr in {
-                        borrow fname as &fnm in {
-                            let held = survey(heap, records, buffer.bytes(idr), buffer.bytes(fnm));
-                            if deterministic && held.same_id_other_outcome {
-                                conflict = true;
-                            }
-                        }
-                    }
-                    if conflict {
-                        var w = fail.open_in(heap, extra(), "flow.step.not-deterministic", "a step declared deterministic gave another outcome than an earlier record of the same inputs", "the declaration is false (or an input was left undeclared); nothing was written; compare the records, or drop --deterministic to keep every outcome");
-                        w = fail.no_repair(heap, w);
-                        w = fail.detail_open(heap, w);
-                        w = json.put_key(heap, w, "oid");
-                        borrow oid_text as &ox in {
-                            w = json.put_string(heap, w, buffer.bytes(ox));
-                        }
-                        e = fail.add(heap, e, w);
-                    } else {
-                        // Written after the program ended, atomically, and only if the name is free; the same bytes already there is
-                        // the same record (idempotent), any other bytes under this name are not.
-                        borrow fname as &fnm in {
-                            borrow id as &idr in {
-                                borrow rec as &rb in {
-                                    let temp = atomic.temp_path(heap, buffer.bytes(fnm), buffer.bytes(idr));
-                                    var errno = 0;
-                                    borrow temp as &tp in {
-                                        let (en, step_no) = atomic.create(records, buffer.bytes(fnm), buffer.bytes(tp), buffer.bytes(rb));
-                                        errno = en;
-                                    }
-                                    buffer.drop(heap, temp);
-                                    if errno == 0 {
-                                        written = true;
-                                        atomic.sync_parent(records);
-                                    } else if errno == 17 {
-                                        let (held_bytes, read_errno, too_big) = atomic.read_all(heap, dir_open_read(records, buffer.bytes(fnm)), config.most_record_bytes(), buffer.empty(heap, 4096));
-                                        var same = false;
-                                        borrow held_bytes as &hb in {
-                                            same = read_errno == 0 && !too_big && bytes.equal(buffer.bytes(hb), buffer.bytes(rb));
-                                        }
-                                        buffer.drop(heap, held_bytes);
-                                        if !same {
-                                            e = fail.simple(heap, e, "flow.record.damaged", "a file already under this record's name is not this record", "the name is the hash of the inputs and of the outcome, so the file was edited or damaged; check it with flow-records", "file", buffer.bytes(fnm));
-                                        }
-                                    } else {
-                                        e = fail.io_error(heap, e, errno, true, buffer.bytes(fnm));
-                                    }
-                                }
-                            }
-                        }
-                        // The data of the answer: the record's name, and the outcome as recorded.
-                        var w = json.writer(heap, 4096);
-                        w = json.begin_object(heap, w);
-                        w = json.put_key(heap, w, "record");
-                        w = json.begin_object(heap, w);
-                        w = json.put_key(heap, w, "id");
-                        borrow id as &idr in {
-                            w = json.put_string(heap, w, buffer.bytes(idr));
-                        }
-                        w = json.put_key(heap, w, "oid");
-                        borrow oid_text as &ox in {
-                            w = json.put_string(heap, w, buffer.bytes(ox));
-                        }
-                        w = json.put_key(heap, w, "file");
-                        borrow fname as &fnm in {
-                            w = json.put_string(heap, w, buffer.bytes(fnm));
-                        }
-                        w = json.put_key(heap, w, "written");
-                        w = json.put_bool(heap, w, written);
-                        w = json.end_object(heap, w);
-                        w = json.put_key(heap, w, "outcome");
-                        borrow outcome as &ob in {
-                            w = json.put_fragment(heap, w, buffer.bytes(ob));
-                        }
-                        w = json.put_key(heap, w, "milliseconds");
-                        w = json.put_int(heap, w, millis);
-                        if answer_output {
-                            // In the answer, never in the record: the record holds only the size and SHA-256 of each stream.
-                            w = json.put_key(heap, w, "stdout");
-                            borrow out_text as &sot in {
-                                w = text.put(heap, w, buffer.bytes(sot));
-                            }
-                            w = json.put_key(heap, w, "stderr");
-                            borrow err_text as &set in {
-                                w = text.put(heap, w, buffer.bytes(set));
-                            }
-                        }
-                        w = json.end_object(heap, w);
-                        buffer.drop(heap, payload);
-                        payload = json.finish(w);
-                    }
-                }
-                buffer.drop(heap, fname);
-                buffer.drop(heap, oid_text);
-                buffer.drop(heap, rec);
-            }
-            buffer.drop(heap, outcome);
-            // What the outcome means (the record is written whatever the program did).
-            if killed == 1 {
-                var w = fail.open_in(heap, extra(), "limit.timeout", "the program ran past --timeout-ms and was killed", "raise --timeout-ms, up to 600000, or give the program less to do; the timeout is recorded");
-                w = fail.no_repair(heap, w);
-                w = fail.detail_open(heap, w);
-                w = json.put_key(heap, w, "timeout_ms");
-                w = json.put_int(heap, w, timeout);
-                e = fail.add(heap, e, w);
-            } else if killed == 2 {
-                var w = fail.open_in(heap, extra(), "limit.output-too-large", "the program wrote more than --max-output to a stream and was killed", "raise --max-output, up to 67108864, or have the program write less; the cut is recorded");
-                w = fail.no_repair(heap, w);
-                w = fail.detail_open(heap, w);
-                w = json.put_key(heap, w, "max_output");
-                w = json.put_int(heap, w, most);
-                e = fail.add(heap, e, w);
-            } else if (code != 0 || signal >= 0) && !allow_failure {
-                var w = fail.open_in(heap, extra(), "flow.step.failed", "the program ended with a non-zero status or a signal", "the record was written; use --allow-failure for a step whose job is to say no");
-                w = fail.no_repair(heap, w);
-                w = fail.detail_open(heap, w);
-                w = json.put_key(heap, w, "exit");
-                w = json.put_int(heap, w, code);
-                w = json.put_key(heap, w, "signal");
-                w = json.put_int(heap, w, signal);
-                e = fail.add(heap, e, w);
-            } else if code == 0 && missing_any {
-                e = fail.simple(heap, e, "flow.step.output-missing", "the program ended with status 0 but did not leave a file declared with --out", "the record was written with the file marked missing; the step did not do what was declared", "", "");
-            }
+            path.drop(heap, record_at);
         }
     }
-    buffer.drop(heap, inputs);
-    buffer.drop(heap, id);
-    buffer.drop(heap, in_json);
-    buffer.drop(heap, out_json);
-    buffer.drop(heap, program_hex);
-    return (payload, out_text, err_text, e);
+    buffer.drop(heap, root);
+    buffer.drop(heap, plan_text);
+    buffer.drop(heap, plan_rel);
+    var status = 0;
+    borrow e as &er3 in {
+        borrow payload as &pl3 in {
+            status = out.respond(heap, io, "flow", "flow.v1", config.version(), buffer.bytes(pl3), "", er3, text_mode, "", 0);
+        }
+    }
+    buffer.drop(heap, payload);
+    fail.drop(heap, e);
+    return status;
 }
 
 fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, io: &!i Io, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll, io_read, io_write, err_write] int {
@@ -674,7 +205,7 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
     if cli.operand_count(parsed) == 0 {
         e = flag_problem(heap, e, "args.missing-operand", "flow takes a verb (step) and the PROGRAM to start", "flow step [flags] -- PROGRAM [ARG...]", "VERB");
     } else if !bytes.equal(cli.operand(args, parsed, 0), "step") {
-        var w = fail.open_in(heap, extra(), "flow.verb", "the first operand is not a verb this program has", "this program has one verb, `step`; the verbs that only read are in flow-records");
+        var w = fail.open_in(heap, stepper.extra(), "flow.verb", "the first operand is not a verb this program has", "this program has two verbs, `step` and `run`; the verbs that only read are in flow-records");
         w = fail.no_repair(heap, w);
         w = fail.detail_open(heap, w);
         w = json.put_key(heap, w, "verb");
@@ -684,8 +215,8 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
         e = flag_problem(heap, e, "args.missing-operand", "step takes the PROGRAM to start", "flow step [flags] -- PROGRAM [ARG...]", "PROGRAM");
     } else {
         name = cli.operand(args, parsed, 1);
-        if !plain_name(name) {
-            var w = fail.open_in(heap, extra(), "flow.program-name", "PROGRAM is a name in the programs directory, not a path", "pass the bare name, e.g. `ml`, with the arguments after it");
+        if !stepper.plain_name(name) {
+            var w = fail.open_in(heap, stepper.extra(), "flow.program-name", "PROGRAM is a name in the programs directory, not a path", "pass the bare name, e.g. `ml`, with the arguments after it");
             w = fail.no_repair(heap, w);
             w = fail.detail_open(heap, w);
             w = json.put_key(heap, w, "program");
@@ -696,12 +227,12 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
         }
     }
     if cli.operand_count(parsed) > config.most_args() + 2 {
-        e = rule_error(heap, e, "flow.args.too-many", "more arguments than a record may hold", "a record holds at most 4096 arguments", "most", config.most_args());
+        e = stepper.rule_error(heap, e, "flow.args.too-many", "more arguments than a record may hold", "a record holds at most 4096 arguments", "most", config.most_args());
     }
     var k = 2;
     while k < cli.operand_count(parsed) && k < config.most_args() + 2 {
         if !text.is_utf8(cli.operand(args, parsed, k)) {
-            e = rule_error(heap, e, "flow.args.not-utf8", "an argument is not UTF-8", "a record holds only text; pass the bytes in a file named with --in", "position", k);
+            e = stepper.rule_error(heap, e, "flow.args.not-utf8", "an argument is not UTF-8", "a record holds only text; pass the bytes in a file named with --in", "position", k);
         }
         k = k + 1;
     }
@@ -710,13 +241,48 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
     let in_list = cli.text(args, parsed, table, "in");
     let out_list = cli.text(args, parsed, table, "out");
     if files.elements(in_list) + files.elements(out_list) > config.most_files() {
-        e = rule_error(heap, e, "flow.files.too-many", "more declared files than a record may hold", "a record holds at most 64 declared files, inputs and outputs together", "most", config.most_files());
+        e = stepper.rule_error(heap, e, "flow.files.too-many", "more declared files than a record may hold", "a record holds at most 64 declared files, inputs and outputs together", "most", config.most_files());
     }
 
+    if cli.has(parsed, table, "stdin") && cli.has(parsed, table, "stdin-file") {
+        e = fail.simple(heap, e, "flow.stdin.conflict", "--stdin and --stdin-file are both given", "a step has one standard input: this tool's own (--stdin) or a file's (--stdin-file)", "", "");
+    }
     var input = buffer.empty(heap, 1);
+    var stdout_rel = buffer.empty(heap, 1);
+    var has_stdin = cli.has(parsed, table, "stdin") || cli.has(parsed, table, "stdin-file");
     var refused = false;
     borrow e as &er in {
         refused = fail.count(er) > 0;
+    }
+    if !refused && cli.has(parsed, table, "stdin-file") {
+        borrow root as &rt0 in {
+            let (data, errno, big, rel, after) = files.read_declared(heap, fs, buffer.bytes(rt0), cli.text(args, parsed, table, "stdin-file"), most_in, e);
+            e = after;
+            buffer.drop(heap, input);
+            input = data;
+            buffer.drop(heap, rel);
+            if errno > 0 {
+                e = fail.io_error(heap, e, errno, false, cli.text(args, parsed, table, "stdin-file"));
+            } else if big {
+                e = fail.simple(heap, e, "limit.input-too-large", "the --stdin-file is larger than --max-stdin", "raise --max-stdin, up to 67108864", "", "");
+            }
+        }
+        borrow e as &er1 in {
+            refused = fail.count(er1) > 0;
+        }
+    }
+    if !refused && cli.has(parsed, table, "stdout-file") {
+        borrow root as &rt2 in {
+            let (declared, after) = files.declare(heap, fs, buffer.bytes(rt2), cli.text(args, parsed, table, "stdout-file"), false, e);
+            e = after;
+            let files.Declared { rel, hex, size, errno } = declared;
+            buffer.drop(heap, hex);
+            buffer.drop(heap, stdout_rel);
+            stdout_rel = rel;
+        }
+        borrow e as &er2 in {
+            refused = fail.count(er2) > 0;
+        }
     }
     if !refused && cli.has(parsed, table, "stdin") {
         buffer.drop(heap, input);
@@ -745,16 +311,27 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
                         DirOpened::Ok(opened) => {
                             var records = opened;
                             borrow records as &rd in {
-                                borrow input as &ip in {
-                                    let (pl, ot, et, e2) = step(heap, args, parsed, fs, exec, clock, rd, buffer.bytes(rt), name, buffer.bytes(ip), in_list, out_list, deterministic, allow_failure, answer_output, timeout, most, e);
-                                    buffer.drop(heap, payload);
-                                    buffer.drop(heap, out_text);
-                                    buffer.drop(heap, err_text);
-                                    payload = pl;
-                                    out_text = ot;
-                                    err_text = et;
-                                    e = e2;
+                                var packed = buffer.empty(heap, 64);
+                                var pk = 2;
+                                while pk < cli.operand_count(parsed) {
+                                    packed = argvp.add(heap, packed, cli.operand(args, parsed, pk));
+                                    pk = pk + 1;
                                 }
+                                borrow packed as &pkb in {
+                                    borrow stdout_rel as &sro in {
+                                        borrow input as &ip in {
+                                            let (pl, ot, et, e2) = stepper.step(heap, buffer.bytes(pkb), has_stdin, buffer.bytes(sro), fs, exec, clock, rd, buffer.bytes(rt), name, buffer.bytes(ip), in_list, out_list, deterministic, allow_failure, answer_output, timeout, most, e);
+                                            buffer.drop(heap, payload);
+                                            buffer.drop(heap, out_text);
+                                            buffer.drop(heap, err_text);
+                                            payload = pl;
+                                            out_text = ot;
+                                            err_text = et;
+                                            e = e2;
+                                        }
+                                    }
+                                }
+                                buffer.drop(heap, packed);
                             }
                             dir_close(records);
                         }
@@ -766,6 +343,7 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
     }
     buffer.drop(heap, root);
     buffer.drop(heap, input);
+    buffer.drop(heap, stdout_rel);
 
     var status = 0;
     borrow e as &er in {
@@ -794,10 +372,14 @@ fn run[&h, &g, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, fs: &f Fs(""), exe
     if which != 0 {
         return describe.answer(heap, io, which, tool(), built());
     }
-    let (parsed, e) = cli.parse(heap, args, flag_table(), fail.empty_in(heap, extra()));
+    let (parsed, e) = cli.parse(heap, args, flag_table(), fail.empty_in(heap, stepper.extra()));
     var status = 0;
     borrow parsed as &p in {
-        status = body(heap, args, p, fs, exec, clock, io, e);
+        if cli.operand_count(p) > 0 && bytes.equal(cli.operand(args, p, 0), "run") {
+            status = body_run(heap, args, p, fs, exec, clock, io, e);
+        } else {
+            status = body(heap, args, p, fs, exec, clock, io, e);
+        }
     }
     cli.drop(heap, parsed);
     return status;

@@ -1,0 +1,44 @@
+edition 5;
+
+module flow.argvp;
+
+// A program's arguments packed into one buffer, each followed by a zero byte, so that a list of any number of arguments (any of them empty)
+// is one `&[byte]` that a function takes and that `flow step` and `flow run` both fill. A command-line argument cannot hold a zero byte
+// and a plan's argument is refused if it does (`flow.plan.arg-nul`), so the packing is unambiguous: the count is the number of zero bytes.
+
+import std.buffer;
+
+pub fn count[&t](p: &t [byte]) -> [] int {
+    var n = 0;
+    var i = 0;
+    while i < len(p) {
+        if int_of(p[i]) == 0 {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// Argument `k` (from 0); empty when there is none.
+pub fn at[&t](p: &t [byte], k: int) -> [] &t [byte] {
+    var seen = 0;
+    var from = 0;
+    var i = 0;
+    while i < len(p) {
+        if int_of(p[i]) == 0 {
+            if seen == k {
+                return p[from..i];
+            }
+            seen = seen + 1;
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    return p[0..0];
+}
+
+pub fn add[&h, &a](heap: &!h Heap, packed: buffer.Buffer, arg: &a [byte]) -> [heap] buffer.Buffer {
+    var b = buffer.append(heap, packed, arg);
+    return buffer.push(heap, b, byte_of(0));
+}

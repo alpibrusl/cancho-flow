@@ -14,7 +14,7 @@
 ## Commands
 
 ```
-flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]
+flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]
 flow-records list|show|check [--root DIR] [--format json|text] DIR [ID[.OID]]
 ```
 
@@ -22,7 +22,7 @@ Answers are one JSON line, schema `flow.v1`: `{ok, command, schema, data, error,
 
 ## Authority (derived by the compiler)
 
-- `flow`: args, child_signal, clock, dir_read, dir_write, err_write, exec("/home/user/cancho-flow/build/site/programs"), file_read, file_write, fs_read, heap, io_read, io_write, pipe_read, pipe_write, poll
+- `flow`: args, child_signal, clock, dir_read, dir_write, err_write, exec("/private/tmp/claude-502/-Users-alfonso-Workspace-alpibrusl-cancho/5a2dcce3-cc39-4ce8-ad9e-d92d3ec7ef84/scratchpad/sib/flow-m3/build/site/programs"), file_read, file_write, fs_read, heap, io_read, io_write, pipe_read, pipe_write, poll
 - `flow-records`: args, dir_read, err_write, file_read, fs_read, heap, io_write
 - `flow-records` has no `exec`, no `clock` and no write: scripts/manifest.py fails it otherwise.
 
@@ -48,6 +48,8 @@ Answers are one JSON line, schema `flow.v1`: `{ok, command, schema, data, error,
 - `flow.record.too-many` (exit 8): the record directory already holds the most records
 - `flow.record.unknown` (exit 3): the directory holds no record with that id
 - `flow.spawn-failed` (exit 8): the operating system could not start the program or its channels
+- `flow.stdin.conflict` (exit 2): --stdin and --stdin-file are both given, and a step has one standard input
+- `flow.stdout.undeclared` (exit 2): --stdout-file names a file that --out does not list, and the file the standard output is written to is an output of the step
 - `flow.step.failed` (exit 8): the program ended with a non-zero status or a signal (the record was written)
 - `flow.step.not-deterministic` (exit 5): a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written)
 - `flow.step.output-missing` (exit 8): the program ended with status 0 but did not leave a file declared with --out (the record was written)

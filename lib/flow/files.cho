@@ -159,3 +159,38 @@ pub fn hash_program[&h, &f, &n](heap: &!h Heap, fs: &f Fs(""), name: &n [byte]) 
     return (hex, errno, size);
 }
 
+// ---- a declared file as the standard input or the standard output of a step ---------------------------------------------------------------
+
+// Read the declared file `given` (checked and in normal form as `declare` does it), at most `most` bytes. Answers the bytes, the errno (0
+// for none; -1 when the path was refused, which is in the errors), whether the file is larger than `most`, the normal form of the path
+// and the errors.
+pub fn read_declared[&h, &f, &r, &p](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], given: &p [byte], most: int, errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (buffer.Buffer, int, bool, buffer.Buffer, fail.Errors) {
+    let (declared, e) = declare(heap, fs, root, given, false, errs);
+    let Declared { rel, hex, size, errno } = declared;
+    buffer.drop(heap, hex);
+    if errno != 0 {
+        return (buffer.empty(heap, 1), errno, false, rel, e);
+    }
+    var full = buffer.empty(heap, len(root) + 64);
+    if len(root) > 0 {
+        full = buffer.append(heap, full, root);
+        if !bytes.equal(root, "/") {
+            full = buffer.push(heap, full, byte_of('/'));
+        }
+    }
+    var data = buffer.empty(heap, 1);
+    var failed = 0;
+    var big = false;
+    borrow rel as &n in {
+        full = buffer.append(heap, full, buffer.bytes(n));
+        borrow full as &fl in {
+            let (got, en, more) = atomic.read_all(heap, place.open_operand(fs, root, buffer.bytes(n), buffer.bytes(fl)), most, buffer.empty(heap, 4096));
+            buffer.drop(heap, data);
+            data = got;
+            failed = en;
+            big = more;
+        }
+    }
+    buffer.drop(heap, full);
+    return (data, failed, big, rel, e);
+}

@@ -100,35 +100,35 @@
 <div class="plabel">Record a step and check it</div>
 <pre id="screen-record" class="screen" role="tabpanel" aria-labelledby="tab-record" tabindex="0"><span class="d"># a log digest: the step reads access.log and writes digest.txt; `digest` is a program of the programs directory</span>
 <span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
-<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","file":"62994be4a983….4dbf52da6b0d….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"235ffe5abee7…","file":"62994be4a983….235ffe5abee7….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
 <span class="a">$ cat digest.txt</span>
-<span>      4 10.0.0.7
-      2 10.0.0.3
-      2 10.0.0.9</span>
+<span>   4 10.0.0.7
+   2 10.0.0.3
+   2 10.0.0.9</span>
 <span class="d"># the same step again is the same record: nothing is written</span>
 <span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
-<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","file":"62994be4a983….4dbf52da6b0d….json","written":false},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0, …</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"62994be4a983…","oid":"235ffe5abee7…","file":"62994be4a983….235ffe5abee7….json","written":false},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0, …</span>
 <span class="d"># the records, and a check that the program and every declared file still match (ID is the id above)</span>
 <span class="a">$ flow-records list records</span>
-<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":1},"meta":{"version":"0.1.0"}}</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"235ffe5abee7…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":1},"meta":{"version":"0.1.0"}}</span>
 <span class="a">$ flow-records check records ID</span>
-<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span></pre>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"235ffe5abee7…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span></pre>
 <div class="plabel">A digest that went stale</div>
 <pre id="screen-stale" class="screen" role="tabpanel" aria-labelledby="tab-stale" tabindex="0"><span class="d"># two more requests are appended to the log</span>
 <span class="a">$ printf '10.0.0.3 GET /docs 200\n10.0.0.3 GET /docs 200\n' &gt;&gt; access.log</span>
 <span class="a">$ flow-records check records ID</span>
-<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
+<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"235ffe5abee7…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
 <span class="b"># exit status 5</span>
 <span class="d"># the step on the new log is another step: another id, another record. The first stays as it was</span>
 <span class="a">$ flow step --record records --in access.log --out digest.txt --deterministic -- digest access.log digest.txt</span>
-<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","file":"9d213d6c4933….7623f0aec3b2….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
+<span class="g">{"ok":true,"command":"flow","schema":"flow.v1","data":{"record":{"id":"9d213d6c4933…","oid":"9e22262ed110…","file":"9d213d6c4933….9e22262ed110….json","written":true},"outcome":{"exit":0,"signal":null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":15,"sha256":"206e48fad233…"},"stderr":{"bytes":0," …</span>
 <span class="a">$ flow-records list records</span>
-<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program":"digest","args":2,"exit":0,"deterministic":true},{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":2},"meta":{"version":"0.1.0"}}</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"records":[{"id":"62994be4a983…","oid":"235ffe5abee7…","program":"digest","args":2,"exit":0,"deterministic":true},{"id":"9d213d6c4933…","oid":"9e22262ed110…","program":"digest","args":2,"exit":0,"deterministic":true}],"count":2},"meta":{"version":"0.1.0"}}</span>
 <span class="a">$ flow-records check records ID2</span>
-<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"9d213d6c4933…","oid":"7623f0aec3b2…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span>
+<span class="g">{"ok":true,"command":"flow-records","schema":"flow.v1","data":{"id":"9d213d6c4933…","oid":"9e22262ed110…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"meta":{"version":"0.1.0"}}</span>
 <span class="d"># the old record is still a true statement about the old log, and says so</span>
 <span class="a">$ flow-records check records ID</span>
-<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"4dbf52da6b0d…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
+<span class="b">{"ok":false,"command":"flow-records","schema":"flow.v1","data":{"id":"62994be4a983…","oid":"235ffe5abee7…","program_matches":true,"inputs_checked":1,"outputs_checked":1},"error":{"code":"CONFLICT","rule":"flow.check.inputs-changed","message":"a declared input is not what the record names","hint":"the file changed or is gone sinc …</span>
 <span class="b"># exit status 5</span></pre>
 <div class="plabel">Refusals are data</div>
 <pre id="screen-refuse" class="screen" role="tabpanel" aria-labelledby="tab-refuse" tabindex="0"><span class="d"># a step whose program fails: the record is written, and the answer is a refusal</span>
@@ -196,9 +196,9 @@
   <h2>Measured, not promised</h2>
   <div class="nums">
     <div class="n reveal"><b><span data-n="damaged">2,136</span></b><span>damaged copies of a record, every one refused as <code>flow.record.damaged</code></span></div>
-    <div class="n reveal"><b><span data-n="fixtures">28</span></b><span>refusal fixtures, one per registered rule of the two programs</span></div>
-    <div class="n reveal"><b><span data-n="mutants">13</span> / <span data-n="mutants">13</span></b><span>deliberate faults caught by the gates</span></div>
-    <div class="n reveal"><b><span data-n="rules">37</span></b><span>named refusals, each with a rule tag and an exit code</span></div>
+    <div class="n reveal"><b><span data-n="fixtures">40</span></b><span>refusal fixtures, one per registered rule of the two programs</span></div>
+    <div class="n reveal"><b><span data-n="mutants">53</span> / <span data-n="mutants">53</span></b><span>deliberate faults caught by the gates</span></div>
+    <div class="n reveal"><b><span data-n="rules">39</span></b><span>named refusals, each with a rule tag and an exit code</span></div>
   </div>
 </div></section>
 
