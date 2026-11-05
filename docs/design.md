@@ -247,3 +247,72 @@ Not built: G6 (memoisation) and G9 (plans), because `--reuse`, `replay`, `compar
 ### 13.4 Decisions the build took by default (no answer had been given)
 
 D4 and D8 as proposed (one record per distinct outcome), D9 as proposed (a failed child is a refusal, `--allow-failure` to turn it off), D10 as proposed (no environment at all), D15 as proposed (no parallelism). They are implemented and tested, so overturning one is a change with a gate behind it, not an edit to a sentence.
+
+## 14. M3 for its first asker: the daily loop of `metasearch-bidding` as plans (design only; nothing here is built)
+
+Tags as above. Written before any code of M3. The asker is `cancho-consulting/metasearch-bidding`, which counts under section 1 and which today wraps `flow step` in a Python class (`service/bidding/tools.py`, `Recorder`) **[read]**, and whose day loop (`service/bidding/runner.py`, `run_world`) is being moved out of Python. This section says what M3 must do for that loop, what it already does (section 6), and what section 6 does not yet say. It changes no decision of sections 3 to 5; each change it proposes is marked **[choice]** and is a question in section 14.7.
+
+### 14.1 What the loop is, read from the Python
+
+For each of `days` (330 in the runs of the client's `docs/e2e.md`): the day's rates (`sim rates`), the baseline bids, for each active service its bids (`policy.Service.bids`: an `ml predict --proba` scoring a grid, then `plan`), the bid file's checks, the simulated day (`sim day`, fed the bid rows on standard input), the ingestion of its clicks and bookings into the observed view, the expected layer of the scorecard (a second `ml predict`), and the kill-switch. On a refit day (every 7th from `t0`) each service first runs `ml fit`, `ml eval`, `ml predict --proba` on the validation file, a calibration gate, and either installs the model or leaves the baseline in charge. Today only the `ml` calls of a refit go through `flow step`; everything else is a direct subprocess **[read]**.
+
+Three properties of the loop decide what a plan needs:
+
+1. **The day loop is not a plan.** It is 330 repetitions, and the state of day `d + 1` is the files of day `d`. Section 6 says "no loops, no variables" and the held tool's admission test applies ("if a request needs more than a list of argument lists, write a program and call `flow step`"). The loop is therefore **a cancho program, the driver**, which writes day `d`'s plan as text and calls `flow run` once per day. The plan stays data; the loop is not in it. **[choice]**
+2. **Most of a day is a pipeline of programs joined by files and by standard output.** `ml predict --proba` writes its answer to standard output; `table` reads it. Section 5.1's `--answer-output` puts the streams in the *answer* for a caller to wire, which a plan has no caller to do.
+3. **A step may fail without the day failing.** "A failing tool leaves the baseline in charge for the day; the rule tag goes to the job log" **[read]** `runner.py`. Section 6 stops the plan at the first failing step.
+
+### 14.2 What section 6 already covers
+
+Ordered steps, `after` as a checked order, conditions as exit statuses (`when:{step,exit}` / `{step,exit_not}`), `allow_failure` on a step whose job is to say no, a whole-plan check before anything runs, `--dry-run`, `flow.plan.v1` holding the digest of the plan text and the `id.oid` of each step. A refit's gate is exactly the example of section 6: `calib` with `allow_failure`, then `serve` `when` exit 0 and `fallback` `when` exit not 0. **No change is needed for the refit.**
+
+### 14.3 Four gaps section 6 does not close
+
+**G1. The step budget.** Section 4 bounds a record directory at **1000 records**. **[read]** the day loop above has at least four programs per day before any model is called (`sim rates`, `sim values`, `sim day`, and `plan` once per active service), so at least `330 x 4 = 1,320` steps in a 330-day run, before the 3 recorded `ml` calls per refit per service (about 43 refits per service in the client's runs: **[read]** `refit_every = 7`, `t0 = 35`, 330 days: `(330 - 35) / 7 + 1 = 43`). One directory cannot hold a run. **[choice]** the driver gives each day its own record directory (`--record runs/d0123`), so that a day is a small, independently checkable claim and the 1000 bound is a per-day bound that a day does not approach (about 10 steps). `flow-records check` and `list` gain `--recursive` (**[open]** or take several directories) so that one command checks a run. Raising the ceiling to many thousands is the alternative; it makes `list` and `check` cost scale with a run instead of a day, and it makes a damaged record cost the reading of the whole directory.
+
+**G2. A step's standard output as a file.** **[choice]** a step gains `"stdout":"PATH"`: the child's standard output is written to `PATH` (inside the root, declared as an output, hashed into the outcome as every `out` file is), instead of being returned in an answer. It is a file, not a pipe: the next step lists `PATH` in `in`. It is bounded by `--max-output`. This does not make `flow` a shell (no pipes, no redirection of standard error, no append, no expansion), and it is the smallest thing a plan needs to run `ml predict --proba ... > p.csv`. The same for `"stdin":"PATH"` (a file given to the child's standard input, hashed, as `--stdin` does for a caller today).
+
+**G3. A day's decisions.** The client's earlier proposal (`docs/pure-cancho.md` section 3 there: a verb `is-day` that exits 0 on a refit day) is **not needed**: the driver already knows the day and writes the refit steps into the plans of refit days only. A decision about *data* is a verb with an exit status (the calibration gate; the bid file's checks); a decision about *the calendar* is the driver's. That is the whole of the discipline, and this document corrects the client's proposal in its own text when this section is accepted.
+
+**G4. Continuing after a failed non-gating step.** `allow_failure:true` makes a nonzero exit the step's answer, so the plan goes on and a later step's `when` reads it. The cases in 14.1 are all of this kind (the tool fails, the baseline stays in charge). What the client also does is to log the **rule tag of the failure**: with `allow_failure` the record holds the child's exit and the hash of its output but the tag is in the output. **[choice]** `flow.plan.v1` records, for a failed `allow_failure` step, `exit` only (the tag is the child's output, which a caller reads from the output file when it wants it); `flow` does not parse a child's output (D9).
+
+### 14.4 What the day's plan looks like
+
+```
+{"id":"rates","program":"sim","args":["rates","7","123"],"stdout":"d123/rates.csv","out":["d123/rates.csv"],"deterministic":true}
+{"id":"proba","program":"ml","args":["predict","--proba","--model","models/service.ml","d123/grid.csv"],"in":["models/service.ml","d123/grid.csv"],"stdout":"d123/p.csv","out":["d123/p.csv"],"deterministic":true,"after":"rates"}
+{"id":"plan","program":"plan","args":["7","123","12"],"stdin":"d123/cands.csv","stdout":"d123/bids.csv","out":["d123/bids.csv"],"deterministic":true,"after":"proba"}
+{"id":"export-check","program":"pnb","args":["check","d123/bids.csv"],"in":["d123/bids.csv"],"allow_failure":true,"after":"plan"}
+{"id":"day","program":"sim","args":["day","7","123"],"stdin":"d123/bids.csv","stdout":"d123/day.csv","out":["d123/day.csv"],"when":{"step":"export-check","exit":0},"after":"export-check"}
+{"id":"baseline-day","program":"sim","args":["day","7","123"],"stdin":"d123/baseline.csv","stdout":"d123/day.csv","out":["d123/day.csv"],"when":{"step":"export-check","exit_not":0},"after":"export-check"}
+```
+
+The names, the programs, and the file layout are the client's; the keys are section 6's plus `stdin`/`stdout` as paths (G2). **[open]** whether two steps in one plan may declare the same output when their `when`s are exclusive (`day` and `baseline-day` above): `flow run`'s whole-plan check would need to prove the exclusivity, which for two `when`s on one step id is a one-line rule (same `step`, one `exit` and one `exit_not` of the same value), and nothing more general.
+
+### 14.5 What it costs, measured
+
+The per-step overhead of `flow step` was measured against the same program run directly: `ml introspect` (146,804 bytes of output), `--deterministic`, 30 runs each of the built `flow` of the client's checkout (the commit of its `docs/flow.md`), Apple M4 Max, macOS, one machine, nothing else deliberately running: **direct 92.1 ms minimum / 100.3 ms median; through `flow step` 99.9 ms minimum / 109.2 ms median**. About **8 ms per step** (both the minimum and the median), which includes hashing the program file and the output. At the 1,320 + refit steps of 14.3 G1 that is about 11 s per run on top of the programs' own time; it is not a figure for any other program or machine. **[open]** the cost of hashing declared inputs that are large (the client's training files are tens of megabytes): this was not measured.
+
+### 14.6 Gates for M3 (written before the code, each able to fail)
+
+| id | judges | how | fails on |
+|---|---|---|---|
+| P1 | the plan is checked whole before anything runs | a plan with an unknown program, an `after` pointing forward, a duplicate id, a path outside the root, more than `--max-steps`: refused, and **no step has run** (the record directory is unchanged) | a step running before the check ends |
+| P2 | order and conditions | a plan of the shape in 14.4: the steps that run are exactly those the exit statuses select; a skipped step is `skipped` in `flow.plan.v1`, not failed | a wrong selection |
+| P3 | `stdout` and `stdin` as files | a step whose output is the next one's input: the next step's recorded input digest equals the first's recorded output digest | a mismatch, or the output written outside the root |
+| P4 | first failure stops | a non-`allow_failure` failure stops the plan, the answer holds `resume`, and `flow run --from K` continues from the right step | a step run twice or skipped |
+| P5 | the plan is a claim | `flow-records check` on a plan record recomputes the plan digest and every step's `id.oid`; one byte changed in the plan text, a step's record, or an output file is `flow.record.damaged` / `flow.check.*` | a change that passes |
+| P6 | determinism | the same plan, run twice from a clean root: identical records, byte for byte | any difference |
+| P7 | bounds | `--max-steps`, a step count at the ceiling, an output at `--max-output`: each refused with its tag | a trap, or a refusal without a tag |
+| P8 | one run, many directories | `flow-records check --recursive` over 40 day directories, one of which has a damaged record: names that directory and that record | a pass, or a missing name |
+| P9 | the client | the client's gate with the loop moved onto `flow run`: the bid files, the job log and the scorecard are byte-identical to the Python loop's on the same seed (this is the client's gate, not this repository's, and M3 is not done until it passes) | a difference |
+
+Each with its mutants; all killed, or each survivor explained.
+
+### 14.7 Open questions this section adds to section 12
+
+11. **Per-day record directories** (G1), or a larger ceiling?
+12. **`stdout` and `stdin` as plan keys** (G2): agreed that this is not a shell? If not, what does a plan do with a program that writes its answer to standard output?
+13. **Two steps declaring the same output under exclusive `when`s** (14.4).
+14. **`flow-records check --recursive`** (P8), or several directory arguments?
+15. **D15 (no parallelism) for the client's day**: the two services' bids are independent within a day. The cost of serial steps at ~8 ms is negligible beside the programs' own time **[measured]** only for `ml introspect`; whether the client needs overlap is a question for its measured times, which this document does not have.
