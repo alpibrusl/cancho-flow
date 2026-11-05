@@ -155,6 +155,21 @@ def S(id, program, *args, **more):
 
 
 
+def forged_plan(w, pid, exit="3"):
+    """A plan record that is whole in itself (id and check recomputed) but false: the exit of its second step is changed. Answers its id."""
+    import hashlib
+    text = (w.d / "records" / (pid + ".plan.json")).read_text()
+    flow_version = json.loads(text)["flow"]
+    claim = text[text.index('"claim":') + 8:text.index(',"flow":"')]
+    steps = json.loads(claim)["steps"]
+    forged = claim.replace('"state":"ran","run":"%s","exit":2' % steps[1]["run"], '"state":"ran","run":"%s","exit":%s' % (steps[1]["run"], exit))
+    must(forged != claim, "the forgery must change something")
+    fid = hashlib.sha256(forged.encode()).hexdigest()
+    head = '{"schema":"flow.plan.v1","id":"%s","claim":%s,"flow":"%s"' % (fid, forged, flow_version)
+    (w.d / "records" / (fid + ".plan.json")).write_text(head + ',"check":"%s"}\n' % hashlib.sha256(head.encode()).hexdigest())
+    return fid
+
+
 def fixtures():
     """tag -> function(world) -> (doc), the answer that must carry the tag."""
     f = {}
@@ -177,6 +192,24 @@ def fixtures():
     f["flow.plan.order"] = lambda w: plan_run(w, [S("a", "true", after="b"), S("b", "true")])[1]
     f["flow.plan.output-collision"] = lambda w: plan_run(w, [S("a", "true", out=["x"]), S("b", "true", out=["x"])])[1]
     f["flow.plan.resume"] = lambda w: plan_run(w, [S("a", "true")], "--resume", "0000.plan.json")[1]
+    def plan_changed(w):
+        pid, _ = plan_world(w)
+        (w.d / "p.plan").write_text("{}\n")
+        return recs(w.d, "check", "records", pid + ".plan")[1]
+    f["flow.check.plan-changed"] = plan_changed
+
+    def plan_inconsistent(w):
+        pid, _ = plan_world(w)
+        return recs(w.d, "check", "records", forged_plan(w, pid) + ".plan")[1]
+    f["flow.check.plan-inconsistent"] = plan_inconsistent
+
+    def directory(w):
+        (w.d / "runs").mkdir()
+        plan_world(w, records="runs/d1")
+        (w.d / "b.txt").write_text("changed\n")
+        doc = recs(w.d, "check", "--recursive", "runs")[1]
+        return {"ok": False, "error": [e for e in doc["errors"] if e["rule"] == "flow.check.directory"][0]}
+    f["flow.check.directory"] = directory
     f["flow.files.too-many"] = lambda w: step(w, "--in", ",".join("f%d" % i for i in range(65)), "--", "true")
 
     def too_many_records(w):
@@ -694,6 +727,144 @@ def g16_plan_fuzz():
     return cases
 
 
+# ---- G17 a plan record is a claim flow-records can check; one command checks a run (P5, P8) -----------------------------------------
+
+def plan_world(w, records="records", plan="p.plan"):
+    w.d.joinpath("in.txt").write_bytes(b"b\na\n")
+    steps = [S("a", "cat", stdin="in.txt", stdout="a.txt", out=["a.txt"], deterministic=True), S("g", "sh", "-c", "exit 2", allow_failure=True), S("b", "cat", stdin="a.txt", stdout="b.txt", out=["b.txt"], when={"step": "g", "exit": 2})]
+    (w.d / records).mkdir(exist_ok=True)
+    text = "".join(json.dumps(x) + "\n" for x in steps)
+    (w.d / plan).write_text(text)
+    rc, doc, _ = run(FLOW, ["run", "--root", ".", "--record", records, plan], w.d)
+    must(rc == 0, rules_of(doc))
+    return doc["data"]["record"]["id"], doc
+
+
+def g17_plan_records():
+    import hashlib
+    with World() as w:
+        pid, doc = plan_world(w)
+        rc, d, _ = recs(w.d, "list", "records")
+        must(rc == 0 and d["data"]["count"] == 3 and d["data"]["plan_count"] == 1 and d["data"]["plans"][0]["id"] == pid and d["data"]["plans"][0]["steps"] == 3 and d["data"]["plans"][0]["stopped"] is None, d)
+        rc, d, _ = recs(w.d, "show", "records", pid + ".plan")
+        must(rc == 0 and d["data"]["record"]["id"] == pid and d["data"]["record"]["schema"] == "flow.plan.v1", d)
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must(rc == 0 and d["data"]["plan_matches"] is True and d["data"]["steps_checked"] == 3, d)
+        rc, d, _ = recs(w.d, "check", "records", "f" * 64 + ".plan")
+        must(rule(d) == "io.not-found", rule(d))
+        # P5: one byte of the plan record changed, at any position, is refused by show and check
+        path = w.d / "records" / (pid + ".plan.json")
+        original = path.read_bytes()
+        refused = 0
+        for pos in range(len(original)):
+            damaged = bytearray(original)
+            damaged[pos] = damaged[pos] ^ 1 if damaged[pos] ^ 1 not in (0x0a,) or pos == len(original) - 1 else damaged[pos] ^ 2
+            path.write_bytes(bytes(damaged))
+            rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+            must(rc != 0 and rule(d) in ("flow.record.damaged",), "the plan record changed at byte %d: %s" % (pos, rule(d)))
+            refused += 1
+        path.write_bytes(original)
+        for extra in (b"x", b"\n", b" "):
+            path.write_bytes(original + extra)
+            rc, d, _ = recs(w.d, "show", "records", pid + ".plan")
+            must(rule(d) == "flow.record.damaged", "bytes after the plan record: %r" % extra)
+        path.write_bytes(original[:-1])
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must(rule(d) == "flow.record.damaged", "a plan record without its newline")
+        for tail in (b" ", b"\t", b"\r"):
+            path.write_bytes(original[:-1] + tail)
+            rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+            must(rule(d) == "flow.record.damaged", "a plan record ending in %r" % tail)
+        # whole in itself (check recomputed) but its id is not the hash of its claim
+        text0 = original.decode()
+        claim0 = text0[text0.index('"claim":') + 8:text0.index(',"flow":"')]
+        wrong = "e" * 64
+        head0 = '{"schema":"flow.plan.v1","id":"%s","claim":%s,"flow":"%s"' % (wrong, claim0, json.loads(text0)["flow"])
+        (w.d / "records" / (wrong + ".plan.json")).write_text(head0 + ',"check":"%s"}\n' % __import__("hashlib").sha256(head0.encode()).hexdigest())
+        rc, d, _ = recs(w.d, "check", "records", wrong + ".plan")
+        must(rule(d) == "flow.record.damaged" and d["error"]["detail"]["reason"] == 2, "an id that is not the hash of the claim: %s" % d)
+        (w.d / "records" / (wrong + ".plan.json")).unlink()
+        path.write_bytes(original)
+        # the files it names changed: the plan, an output, a step record, a missing step record
+        (w.d / "p.plan").write_text("{}\n")
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must("flow.check.plan-changed" in rules_of(d), rules_of(d))
+        plan_world_text = "".join(json.dumps(x) + "\n" for x in [S("a", "cat", stdin="in.txt", stdout="a.txt", out=["a.txt"], deterministic=True), S("g", "sh", "-c", "exit 2", allow_failure=True), S("b", "cat", stdin="a.txt", stdout="b.txt", out=["b.txt"], when={"step": "g", "exit": 2})])
+        (w.d / "p.plan").write_text(plan_world_text)
+        (w.d / "b.txt").write_text("changed\n")
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must("flow.check.outputs-changed" in rules_of(d), rules_of(d))
+        (w.d / "b.txt").write_text("b\na\n")
+        steps = json.loads(path.read_text())["claim"]["steps"]
+        victim = w.d / "records" / (steps[1]["run"] + ".json")
+        saved = victim.read_bytes()
+        victim.unlink()
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must(rule(d) == "io.not-found", "a missing step record: %s" % rule(d))
+        victim.write_bytes(saved.replace(b"a", b"b", 1))
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must("flow.record.damaged" in rules_of(d), "a damaged step record: %s" % rules_of(d))
+        victim.write_bytes(saved)
+        # the plan record and the step record disagree about an exit: a record that is whole in itself (id and check recomputed) but false
+        fid = forged_plan(w, pid)
+        rc, d, _ = recs(w.d, "check", "records", fid + ".plan")
+        must("flow.check.plan-inconsistent" in rules_of(d), "a forged exit: %s" % rules_of(d))
+        fid2 = forged_plan(w, pid, "null")
+        rc, d, _ = recs(w.d, "check", "records", fid2 + ".plan")
+        must("flow.check.plan-inconsistent" in rules_of(d), "an exit forged to null: %s" % rules_of(d))
+        # a plan record that is whole in itself but whose file is named for another id
+        body = (w.d / "records" / (fid + ".plan.json")).read_text()
+        (w.d / "records" / (fid + ".plan.json")).unlink()
+        (w.d / "records" / ("a" * 64 + ".plan.json")).write_text(body)
+        rc, d, _ = recs(w.d, "list", "records")
+        must(rule(d) == "flow.record.damaged", "a misnamed plan record: %s" % rule(d))
+    # a step with no exit status (killed by a signal) that a forged plan record says exited 0
+    with World() as w:
+        rc, doc, _ = plan_run(w, [S("k", "sh", "-c", "kill -9 $$", allow_failure=True)])
+        must(rc == 0 and doc["data"]["steps"][0]["exit"] is None, doc)
+        pid = doc["data"]["record"]["id"]
+        rc, d, _ = recs(w.d, "check", "records", pid + ".plan")
+        must(rc == 0, "the true record checks: %s" % rules_of(d))
+        import hashlib
+        text = (w.d / "records" / (pid + ".plan.json")).read_text()
+        claim = text[text.index('"claim":') + 8:text.index(',"flow":"')]
+        forged = claim.replace('"exit":null', '"exit":0')
+        must(forged != claim, "forgery")
+        fid = hashlib.sha256(forged.encode()).hexdigest()
+        head = '{"schema":"flow.plan.v1","id":"%s","claim":%s,"flow":"%s"' % (fid, forged, json.loads(text)["flow"])
+        (w.d / "records" / (fid + ".plan.json")).write_text(head + ',"check":"%s"}\n' % hashlib.sha256(head.encode()).hexdigest())
+        rc, d, _ = recs(w.d, "check", "records", fid + ".plan")
+        must("flow.check.plan-inconsistent" in rules_of(d), "a signal-killed step said to exit 0: %s" % rules_of(d))
+    # P8: one command checks a run laid out as a directory per day; a damaged record is named with its directory
+    with World() as w:
+        (w.d / "runs").mkdir()
+        for day in range(40):
+            plan_world(w, records="runs/d%02d" % day)
+        rc, d, _ = recs(w.d, "check", "--recursive", "runs")
+        must(rc == 0 and d["data"]["directories_checked"] == 41 and all(x["ok"] for x in d["data"]["directories"]), d)
+        must(sum(x["records"] for x in d["data"]["directories"]) == 120 and sum(x["plans"] for x in d["data"]["directories"]) == 40, d["data"]["directories"][:3])
+        victim_dir = w.d / "runs" / "d17"
+        names = sorted(n for n in os.listdir(victim_dir) if not n.endswith(".plan.json"))
+        target = victim_dir / names[0]
+        target.write_bytes(target.read_bytes().replace(b"cat", b"dog", 1))
+        rc, d, _ = recs(w.d, "check", "--recursive", "runs")
+        found = [(e["rule"], e["detail"].get("dir"), e["detail"].get("file")) for e in d["errors"]]
+        must(("flow.record.damaged", None, names[0]) in found and ("flow.check.directory", "runs/d17", None) in found, found)
+        must(sum(1 for e in d["errors"] if e["rule"] == "flow.check.directory") == 1, "only the damaged directory is named: %s" % found)
+        # an output changed in a plan's files is named too, once per directory that holds a record of it
+        target.write_bytes(target.read_bytes().replace(b"dog", b"cat", 1))
+        rc, d, _ = recs(w.d, "check", "--recursive", "runs")
+        must(rc == 0, "the repaired tree must check: %s" % rules_of(d))
+        # the operands
+        rc, d, _ = recs(w.d, "check", "--recursive", "runs", "x" * 64)
+        must(rule(d) == "args.unexpected-value", rule(d))
+        rc, d, _ = recs(w.d, "list", "--recursive", "runs")
+        must(rule(d) == "args.unexpected-value", rule(d))
+        rc, d, _ = recs(w.d, "check", "runs")
+        must(rule(d) == "args.missing-operand", rule(d))
+    return refused
+
+
 # ---- G10 files ---------------------------------------------------------------
 
 def g10_files():
@@ -705,7 +876,7 @@ def g10_files():
 
 
 GATES = [("G1 canonical", g1_canonical), ("G2 damage", g2_damage), ("G3 refusals", g3_refusals), ("G4 bounds", g4_bounds),
-         ("G5 determinism", g5_determinism), ("G7 check", g7_check), ("G10 files", g10_files), ("G11 answer output", g11_answer_output), ("G12 stdio files", g12_stdio_files), ("G13 plan check", g13_plan_check), ("G14 plan run", g14_plan_run), ("G15 plan bounds", g15_plan_bounds), ("G16 plan fuzz", g16_plan_fuzz)]
+         ("G5 determinism", g5_determinism), ("G7 check", g7_check), ("G10 files", g10_files), ("G11 answer output", g11_answer_output), ("G12 stdio files", g12_stdio_files), ("G13 plan check", g13_plan_check), ("G14 plan run", g14_plan_run), ("G15 plan bounds", g15_plan_bounds), ("G16 plan fuzz", g16_plan_fuzz), ("G17 plan records", g17_plan_records)]
 
 
 def main():

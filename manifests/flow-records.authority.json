@@ -111,6 +111,7 @@
     "field_of",
     "field_of",
     "find",
+    "find",
     "find_in",
     "finish",
     "first",
@@ -120,6 +121,7 @@
     "get$int",
     "guarantee_keys",
     "guarantees_has",
+    "has",
     "has_dotdot",
     "hex4",
     "hex_digit",
@@ -172,6 +174,7 @@
     "parse_int",
     "parse_nat",
     "plain_byte",
+    "plan_name",
     "point_width",
     "pow2",
     "programs",
@@ -213,7 +216,7 @@
     "version",
     "width_of"
   ],
-  "folded_operators": 64,
+  "folded_operators": 67,
   "folded_calls": 0,
-  "functions": 295
+  "functions": 305
 }
