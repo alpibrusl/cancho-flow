@@ -33,6 +33,8 @@ import toolbox.path;
 import toolbox.place;
 import toolbox.text;
 import flow.argvp;
+import flow.plan;
+import flow.runplan;
 import flow.stepper;
 import flow.canon;
 import flow.config;
@@ -40,11 +42,11 @@ import flow.files;
 import flow.scan;
 
 fn flag_table() -> [] &static [byte] {
-    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);stdin-file||text|path-read||a file beneath --root given to the program as its standard input (hashed and recorded as --stdin does; at most --max-stdin bytes);stdout-file||text|path-write||a file beneath --root the program's standard output is written to, atomically, after it ends (it must also be listed in --out, so it is hashed into the outcome as every output is; it is not written when the program was killed);max-stdin||nat|none|1048576|the most standard input accepted with --stdin or --stdin-file (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
+    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);stdin-file||text|path-read||a file beneath --root given to the program as its standard input (hashed and recorded as --stdin does; at most --max-stdin bytes);stdout-file||text|path-write||a file beneath --root the program's standard output is written to, atomically, after it ends (it must also be listed in --out, so it is hashed into the outcome as every output is; it is not written when the program was killed);max-steps||nat|none|64|the most steps `run` accepts in a plan (ceiling 1024);dry-run||bool|none||`run` checks the plan whole and prints the program and arguments of every step, and starts nothing;resume||text|path-read||`run` continues the plan whose run stopped, from the step it stopped at: the plan record (its name, in --record) that run answered as `resume.record`;max-stdin||nat|none|1048576|the most standard input accepted with --stdin or --stdin-file (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
 }
 
 fn tool() -> [] describe.Tool {
-    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.stdin.conflict;flow.stdout.undeclared;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: stepper.extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
+    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow run [--root DIR] --record DIR [--max-steps N] [--dry-run] [--resume NAME] [--max-stdin N] [--timeout-ms N] [--max-output N] [--format json|text] PLAN\nflow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step, run;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.plan.syntax;flow.plan.empty;flow.plan.too-many-steps;flow.plan.duplicate-id;flow.plan.order;flow.plan.output-collision;flow.plan.resume;flow.stdin.conflict;flow.stdout.undeclared;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: stepper.extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
 }
 
 fn built() -> [] describe.Built {
@@ -68,19 +70,109 @@ fn flag_problem[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], messag
     return fail.add(heap, e, w);
 }
 
-// A plain name: not empty, not `.` or `..`, no `/`.
-fn plain_name[&n](name: &n [byte]) -> [] bool {
-    if len(name) == 0 || bytes.equal(name, ".") || bytes.equal(name, "..") {
-        return false;
+fn body_run[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, io: &!i Io, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll, io_write, err_write] int {
+    let table = flag_table();
+    var e = errs;
+    let text_mode = bytes.equal(cli.text(args, parsed, table, "format"), "text");
+    let timeout = cli.nat(args, parsed, table, "timeout-ms");
+    let most = cli.nat(args, parsed, table, "max-output");
+    let most_in = cli.nat(args, parsed, table, "max-stdin");
+    let max_steps = cli.nat(args, parsed, table, "max-steps");
+    let resume = cli.text(args, parsed, table, "resume");
+    if timeout < 1 || timeout > timeout_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--timeout-ms is from 1 to 600000", "pass a deadline in that range", "--timeout-ms");
     }
-    var i = 0;
-    while i < len(name) {
-        if int_of(name[i]) == '/' {
-            return false;
+    if most < 1 || most > size_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-output is from 1 to 67108864", "pass a cap in that range", "--max-output");
+    }
+    if most_in > size_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-stdin is above the ceiling", "67108864 is the most this tool holds", "--max-stdin");
+    }
+    if max_steps < 1 || max_steps > plan.steps_ceiling() {
+        e = flag_problem(heap, e, "args.bad-value", "--max-steps is from 1 to 1024", "pass a bound in that range", "--max-steps");
+    }
+    if len(resume) > 0 && (!stepper.plain_name(resume) || !bytes.ends_with(resume, ".plan.json")) {
+        e = flag_problem(heap, e, "args.bad-value", "--resume is the name of a plan record in --record, ending in .plan.json", "pass the `resume.record` of the answer of the run that stopped", "--resume");
+    }
+    if !cli.has(parsed, table, "record") {
+        e = flag_problem(heap, e, "args.missing-operand", "run needs --record, the directory that holds the records", "flow run --record DIR [flags] PLAN", "--record");
+    }
+    if cli.operand_count(parsed) < 2 {
+        e = flag_problem(heap, e, "args.missing-operand", "run takes the PLAN to run", "flow run --record DIR [flags] PLAN", "PLAN");
+    } else if cli.operand_count(parsed) > 2 {
+        e = flag_problem(heap, e, "args.unexpected-value", "run takes one PLAN and nothing after it", "a plan is data: its steps are its lines", "PLAN");
+    }
+    let (root, after_root) = path.root(heap, args, cli.text(args, parsed, table, "root"), cli.value_index(parsed, table, "root"), e);
+    e = after_root;
+
+    var plan_text = buffer.empty(heap, 1);
+    var plan_rel = buffer.empty(heap, 1);
+    var refused = false;
+    borrow e as &er in {
+        refused = fail.count(er) > 0;
+    }
+    if !refused {
+        borrow root as &rt0 in {
+            let (data, errno, big, rel, after) = files.read_declared(heap, fs, buffer.bytes(rt0), cli.operand(args, parsed, 1), plan.most_plan_bytes(), e);
+            e = after;
+            buffer.drop(heap, plan_text);
+            plan_text = data;
+            buffer.drop(heap, plan_rel);
+            plan_rel = rel;
+            if errno > 0 {
+                e = fail.io_error(heap, e, errno, false, cli.operand(args, parsed, 1));
+            } else if big {
+                e = fail.simple(heap, e, "limit.input-too-large", "the plan is larger than 1048576 bytes", "split the plan: a plan is a list of steps, and a day's is about ten", "", "");
+            }
         }
-        i = i + 1;
+        borrow e as &er1 in {
+            refused = fail.count(er1) > 0;
+        }
     }
-    return true;
+
+    var payload = buffer.empty(heap, 1);
+    if !refused {
+        borrow root as &rt in {
+            let (record_at, after_record) = path.operand(heap, args, buffer.bytes(rt), cli.value_index(parsed, table, "record"), e);
+            e = after_record;
+            borrow record_at as &ra in {
+                if path.ok(ra) {
+                    match place.open_directory(fs, buffer.bytes(rt), path.shown(ra), path.full(ra)) {
+                        DirOpened::Failed(errno) => {
+                            e = fail.io_error(heap, e, errno, true, path.shown(ra));
+                        }
+                        DirOpened::Ok(opened) => {
+                            var records = opened;
+                            borrow records as &rd in {
+                                borrow plan_text as &ptb in {
+                                    borrow plan_rel as &prb in {
+                                        let (pl, e2) = runplan.run_plan(heap, fs, exec, clock, rd, buffer.bytes(rt), buffer.bytes(prb), buffer.bytes(ptb), max_steps, cli.has(parsed, table, "dry-run"), resume, timeout, most, most_in, e);
+                                        buffer.drop(heap, payload);
+                                        payload = pl;
+                                        e = e2;
+                                    }
+                                }
+                            }
+                            dir_close(records);
+                        }
+                    }
+                }
+            }
+            path.drop(heap, record_at);
+        }
+    }
+    buffer.drop(heap, root);
+    buffer.drop(heap, plan_text);
+    buffer.drop(heap, plan_rel);
+    var status = 0;
+    borrow e as &er3 in {
+        borrow payload as &pl3 in {
+            status = out.respond(heap, io, "flow", "flow.v1", config.version(), buffer.bytes(pl3), "", er3, text_mode, "", 0);
+        }
+    }
+    buffer.drop(heap, payload);
+    fail.drop(heap, e);
+    return status;
 }
 
 fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, io: &!i Io, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll, io_read, io_write, err_write] int {
@@ -113,7 +205,7 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
     if cli.operand_count(parsed) == 0 {
         e = flag_problem(heap, e, "args.missing-operand", "flow takes a verb (step) and the PROGRAM to start", "flow step [flags] -- PROGRAM [ARG...]", "VERB");
     } else if !bytes.equal(cli.operand(args, parsed, 0), "step") {
-        var w = fail.open_in(heap, stepper.extra(), "flow.verb", "the first operand is not a verb this program has", "this program has one verb, `step`; the verbs that only read are in flow-records");
+        var w = fail.open_in(heap, stepper.extra(), "flow.verb", "the first operand is not a verb this program has", "this program has two verbs, `step` and `run`; the verbs that only read are in flow-records");
         w = fail.no_repair(heap, w);
         w = fail.detail_open(heap, w);
         w = json.put_key(heap, w, "verb");
@@ -123,7 +215,7 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
         e = flag_problem(heap, e, "args.missing-operand", "step takes the PROGRAM to start", "flow step [flags] -- PROGRAM [ARG...]", "PROGRAM");
     } else {
         name = cli.operand(args, parsed, 1);
-        if !plain_name(name) {
+        if !stepper.plain_name(name) {
             var w = fail.open_in(heap, stepper.extra(), "flow.program-name", "PROGRAM is a name in the programs directory, not a path", "pass the bare name, e.g. `ml`, with the arguments after it");
             w = fail.no_repair(heap, w);
             w = fail.detail_open(heap, w);
@@ -283,7 +375,11 @@ fn run[&h, &g, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, fs: &f Fs(""), exe
     let (parsed, e) = cli.parse(heap, args, flag_table(), fail.empty_in(heap, stepper.extra()));
     var status = 0;
     borrow parsed as &p in {
-        status = body(heap, args, p, fs, exec, clock, io, e);
+        if cli.operand_count(p) > 0 && bytes.equal(cli.operand(args, p, 0), "run") {
+            status = body_run(heap, args, p, fs, exec, clock, io, e);
+        } else {
+            status = body(heap, args, p, fs, exec, clock, io, e);
+        }
     }
     cli.drop(heap, parsed);
     return status;

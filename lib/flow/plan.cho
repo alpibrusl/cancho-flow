@@ -1,0 +1,587 @@
+edition 5;
+
+module flow.plan;
+
+// A plan is JSON lines, one step per line, data and nothing else (docs/design.md section 6). This module reads one line into a `Spec`
+// (strictly: an unknown key, a value of the wrong type, a duplicate key and an out-of-range number are each refused, never ignored) and
+// answers the questions the whole-plan check asks of a text of lines. It starts nothing and opens nothing.
+
+import std.buffer;
+import std.bytes;
+import std.json;
+import flow.argvp;
+
+pub fn most_plan_bytes() -> [] int {
+    return 1048576;
+}
+
+pub fn steps_default() -> [] int {
+    return 64;
+}
+
+pub fn steps_ceiling() -> [] int {
+    return 1024;
+}
+
+// ---- the lines of a text ----------------------------------------------------------------------------------------------------------------
+
+fn blank[&t](line: &t [byte]) -> [] bool {
+    var i = 0;
+    while i < len(line) {
+        let c = int_of(line[i]);
+        if c != ' ' && c != '\t' && c != '\r' {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// How many lines hold a step: the lines that are not blank.
+pub fn lines[&t](text: &t [byte]) -> [] int {
+    var n = 0;
+    var from = 0;
+    var i = 0;
+    while i <= len(text) {
+        if i == len(text) || int_of(text[i]) == '\n' {
+            if !blank(text[from..i]) {
+                n = n + 1;
+            }
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// The step line `k` (from 0), without its end of line: the `k`th line that is not blank.
+pub fn line_at[&t](text: &t [byte], k: int) -> [] &t [byte] {
+    var n = 0;
+    var from = 0;
+    var i = 0;
+    while i <= len(text) {
+        if i == len(text) || int_of(text[i]) == '\n' {
+            if !blank(text[from..i]) {
+                if n == k {
+                    return text[from..i];
+                }
+                n = n + 1;
+            }
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    return text[0..0];
+}
+
+// The number of the physical line (from 1) that holds step `k`, for a refusal to name.
+pub fn physical[&t](text: &t [byte], k: int) -> [] int {
+    var n = 0;
+    var from = 0;
+    var line = 1;
+    var i = 0;
+    while i <= len(text) {
+        if i == len(text) || int_of(text[i]) == '\n' {
+            if !blank(text[from..i]) {
+                if n == k {
+                    return line;
+                }
+                n = n + 1;
+            }
+            from = i + 1;
+            line = line + 1;
+        }
+        i = i + 1;
+    }
+    return line;
+}
+
+// ---- names ------------------------------------------------------------------------------------------------------------------------------
+
+// A step's id: 1 to 64 of `a-z`, `A-Z`, `0-9`, `_`, `-`, and `.` is not one (an id is joined to an oid with a dot).
+pub fn valid_id[&t](id: &t [byte]) -> [] bool {
+    if len(id) < 1 || len(id) > 64 {
+        return false;
+    }
+    var i = 0;
+    while i < len(id) {
+        let c = int_of(id[i]);
+        let ok = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-';
+        if !ok {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn has_byte[&t](text: &t [byte], b: int) -> [] bool {
+    var i = 0;
+    while i < len(text) {
+        if int_of(text[i]) == b {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+// ---- one line --------------------------------------------------------------------------------------------------------------------------
+
+// Why a line was refused.
+pub fn ok() -> [] int {
+    return 0;
+}
+
+pub fn not_object() -> [] int {
+    return 1;
+}
+
+pub fn unknown_key() -> [] int {
+    return 2;
+}
+
+pub fn wrong_type() -> [] int {
+    return 3;
+}
+
+pub fn missing() -> [] int {
+    return 4;
+}
+
+pub fn bad_id() -> [] int {
+    return 5;
+}
+
+pub fn bad_text() -> [] int {
+    return 6;
+}
+
+pub fn bad_when() -> [] int {
+    return 7;
+}
+
+pub fn bad_number() -> [] int {
+    return 8;
+}
+
+pub fn duplicate_key() -> [] int {
+    return 9;
+}
+
+// What a line says. `reason` is 0 for a line that was read, else one of the codes above and `key` names the member it is about.
+pub res struct Spec {
+    id: buffer.Buffer,
+    program: buffer.Buffer,
+    args: buffer.Buffer,
+    ins: buffer.Buffer,
+    outs: buffer.Buffer,
+    stdin: buffer.Buffer,
+    stdout: buffer.Buffer,
+    after: buffer.Buffer,
+    when_step: buffer.Buffer,
+    when_kind: int,
+    when_n: int,
+    det: bool,
+    allow: bool,
+    timeout: int,
+    most: int,
+    reason: int,
+    key: buffer.Buffer,
+}
+
+pub fn drop_spec[&h](heap: &!h Heap, s: Spec) -> [heap] int {
+    let Spec { id, program, args, ins, outs, stdin, stdout, after, when_step, when_kind, when_n, det, allow, timeout, most, reason, key } = s;
+    buffer.drop(heap, id);
+    buffer.drop(heap, program);
+    buffer.drop(heap, args);
+    buffer.drop(heap, ins);
+    buffer.drop(heap, outs);
+    buffer.drop(heap, stdin);
+    buffer.drop(heap, stdout);
+    buffer.drop(heap, after);
+    buffer.drop(heap, when_step);
+    buffer.drop(heap, key);
+    return 0;
+}
+
+pub fn id_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.id);
+}
+
+pub fn program_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.program);
+}
+
+pub fn args_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.args);
+}
+
+pub fn ins_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.ins);
+}
+
+pub fn outs_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.outs);
+}
+
+pub fn stdin_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.stdin);
+}
+
+pub fn stdout_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.stdout);
+}
+
+pub fn after_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.after);
+}
+
+pub fn when_step_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.when_step);
+}
+
+pub fn key_of[&s](sp: &s Spec) -> [] &s [byte] {
+    return buffer.bytes(sp.key);
+}
+
+// The string node `v` decoded into a buffer.
+fn decoded[&h, &d, &t](heap: &!h Heap, src: &d [byte], tape: &t [int], v: int) -> [heap] buffer.Buffer {
+    let n = json.string_length(src, tape, v);
+    var size = n;
+    if size < 1 {
+        size = 1;
+    }
+    let raw = box_slice(heap, size, byte_of(0));
+    var out = buffer.empty(heap, size + 1);
+    borrow mut raw as &!rw in {
+        if n > 0 {
+            json.string_into(src, tape, v, contents(rw)[0..n]);
+        }
+        out = buffer.append(heap, out, contents(rw)[0..n]);
+    }
+    unbox_slice(heap, raw);
+    return out;
+}
+
+// Which member a key is: 1 id, 2 program, 3 args, 4 in, 5 out, 6 stdin, 7 stdout, 8 deterministic, 9 allow_failure, 10 after, 11 when,
+// 12 timeout_ms, 13 max_output; 0 for a key this format has not got.
+fn member[&s, &t](src: &s [byte], tape: &t [int], j: int) -> [] int {
+    if json.string_equals(src, tape, j, "id") {
+        return 1;
+    }
+    if json.string_equals(src, tape, j, "program") {
+        return 2;
+    }
+    if json.string_equals(src, tape, j, "args") {
+        return 3;
+    }
+    if json.string_equals(src, tape, j, "in") {
+        return 4;
+    }
+    if json.string_equals(src, tape, j, "out") {
+        return 5;
+    }
+    if json.string_equals(src, tape, j, "stdin") {
+        return 6;
+    }
+    if json.string_equals(src, tape, j, "stdout") {
+        return 7;
+    }
+    if json.string_equals(src, tape, j, "deterministic") {
+        return 8;
+    }
+    if json.string_equals(src, tape, j, "allow_failure") {
+        return 9;
+    }
+    if json.string_equals(src, tape, j, "after") {
+        return 10;
+    }
+    if json.string_equals(src, tape, j, "when") {
+        return 11;
+    }
+    if json.string_equals(src, tape, j, "timeout_ms") {
+        return 12;
+    }
+    if json.string_equals(src, tape, j, "max_output") {
+        return 13;
+    }
+    return 0;
+}
+
+fn member_name(k: int) -> [] &static [byte] {
+    if k == 1 {
+        return "id";
+    }
+    if k == 2 {
+        return "program";
+    }
+    if k == 3 {
+        return "args";
+    }
+    if k == 4 {
+        return "in";
+    }
+    if k == 5 {
+        return "out";
+    }
+    if k == 6 {
+        return "stdin";
+    }
+    if k == 7 {
+        return "stdout";
+    }
+    if k == 8 {
+        return "deterministic";
+    }
+    if k == 9 {
+        return "allow_failure";
+    }
+    if k == 10 {
+        return "after";
+    }
+    if k == 11 {
+        return "when";
+    }
+    if k == 12 {
+        return "timeout_ms";
+    }
+    return "max_output";
+}
+
+// The array at node `arr` of strings, each decoded; `packed` (zero-ended, for the arguments) or comma separated (for the files). A zero
+// byte in an argument, and a comma or nothing at all in a path, cannot be carried and are refused. Answers the text and a reason.
+fn strings[&h, &d, &t](heap: &!h Heap, src: &d [byte], tape: &t [int], arr: int, packed: bool) -> [heap] (buffer.Buffer, int) {
+    var out = buffer.empty(heap, 64);
+    if !json.is_array(tape, arr) {
+        return (out, wrong_type());
+    }
+    var left = json.count(tape, arr);
+    var j = arr + 1;
+    var first = true;
+    var reason = 0;
+    while left > 0 && reason == 0 {
+        if !json.is_string(tape, j) {
+            reason = wrong_type();
+        } else {
+            let item = decoded(heap, src, tape, j);
+            borrow item as &ib in {
+                let b = buffer.bytes(ib);
+                if has_byte(b, 0) {
+                    reason = bad_text();
+                } else if packed {
+                    out = argvp.add(heap, out, b);
+                } else if len(b) == 0 || has_byte(b, ',') {
+                    reason = bad_text();
+                } else {
+                    if !first {
+                        out = buffer.push(heap, out, byte_of(','));
+                    }
+                    out = buffer.append(heap, out, b);
+                }
+            }
+            buffer.drop(heap, item);
+            first = false;
+        }
+        j = json.skip(tape, j);
+        left = left - 1;
+    }
+    return (out, reason);
+}
+
+// Read a line. Strict: the value of a member has its type, a member is given once, `id` and `program` are given.
+pub fn parse_line[&h, &l](heap: &!h Heap, line: &l [byte]) -> [heap] Spec {
+    var id = buffer.empty(heap, 1);
+    var program = buffer.empty(heap, 1);
+    var args = buffer.empty(heap, 1);
+    var ins = buffer.empty(heap, 1);
+    var outs = buffer.empty(heap, 1);
+    var stdin = buffer.empty(heap, 1);
+    var stdout = buffer.empty(heap, 1);
+    var after = buffer.empty(heap, 1);
+    var when_step = buffer.empty(heap, 1);
+    var key = buffer.empty(heap, 1);
+    var when_kind = 0;
+    var when_n = 0;
+    var det = false;
+    var allow = false;
+    var timeout = 0;
+    var most = 0;
+    var reason = 0;
+    var seen = 0;
+    let tape = box_slice(heap, json.tape_len(line) + 3, 0);
+    var nodes = 0;
+    borrow mut tape as &!tw in {
+        nodes = json.parse(line, contents(tw));
+    }
+    borrow tape as &tr in {
+        let t = contents(tr);
+        if nodes <= 0 || !json.is_object(t, 0) {
+            reason = not_object();
+        } else {
+            var left = json.count(t, 0);
+            var j = 1;
+            while left > 0 && reason == 0 {
+                let m = member(line, t, j);
+                let v = j + 1;
+                buffer.drop(heap, key);
+                if m == 0 {
+                    reason = unknown_key();
+                    key = buffer.append(heap, buffer.empty(heap, 16), json.string_view(line, t, j));
+                } else if seen / pow2(m) % 2 == 1 {
+                    reason = duplicate_key();
+                    key = buffer.append(heap, buffer.empty(heap, 16), member_name(m));
+                } else {
+                    seen = seen + pow2(m);
+                    key = buffer.append(heap, buffer.empty(heap, 16), member_name(m));
+                    if m == 1 || m == 2 || m == 6 || m == 7 || m == 10 {
+                        if !json.is_string(t, v) {
+                            reason = wrong_type();
+                        } else {
+                            let text = decoded(heap, line, t, v);
+                            if m == 1 {
+                                buffer.drop(heap, id);
+                                id = text;
+                            } else if m == 2 {
+                                buffer.drop(heap, program);
+                                program = text;
+                            } else if m == 6 {
+                                buffer.drop(heap, stdin);
+                                stdin = text;
+                            } else if m == 7 {
+                                buffer.drop(heap, stdout);
+                                stdout = text;
+                            } else {
+                                buffer.drop(heap, after);
+                                after = text;
+                            }
+                        }
+                    } else if m == 3 {
+                        let (text, why) = strings(heap, line, t, v, true);
+                        buffer.drop(heap, args);
+                        args = text;
+                        reason = why;
+                    } else if m == 4 {
+                        let (text, why) = strings(heap, line, t, v, false);
+                        buffer.drop(heap, ins);
+                        ins = text;
+                        reason = why;
+                    } else if m == 5 {
+                        let (text, why) = strings(heap, line, t, v, false);
+                        buffer.drop(heap, outs);
+                        outs = text;
+                        reason = why;
+                    } else if m == 8 || m == 9 {
+                        if !json.is_bool(t, v) {
+                            reason = wrong_type();
+                        } else if m == 8 {
+                            det = json.to_bool(t, v);
+                        } else {
+                            allow = json.to_bool(t, v);
+                        }
+                    } else if m == 12 || m == 13 {
+                        if !json.is_int(t, v) {
+                            reason = wrong_type();
+                        } else if !json.fits_int(line, t, v) {
+                            reason = bad_number();
+                        } else {
+                            let n = json.to_int(line, t, v);
+                            if m == 12 && (n < 1 || n > 600000) {
+                                reason = bad_number();
+                            } else if m == 13 && (n < 1 || n > 67108864) {
+                                reason = bad_number();
+                            } else if m == 12 {
+                                timeout = n;
+                            } else {
+                                most = n;
+                            }
+                        }
+                        // when: {"step":ID,"exit":N} or {"step":ID,"exit_not":N}, and nothing else
+                    } else if !json.is_object(t, v) {
+                        reason = wrong_type();
+                    } else {
+                        var wleft = json.count(t, v);
+                        var wj = v + 1;
+                        var have_step = false;
+                        var have_n = false;
+                        while wleft > 0 && reason == 0 {
+                            let wv = wj + 1;
+                            if json.string_equals(line, t, wj, "step") && !have_step && json.is_string(t, wv) {
+                                buffer.drop(heap, when_step);
+                                when_step = decoded(heap, line, t, wv);
+                                have_step = true;
+                            } else if (json.string_equals(line, t, wj, "exit") || json.string_equals(line, t, wj, "exit_not")) && !have_n && json.is_int(t, wv) && json.fits_int(line, t, wv) {
+                                when_n = json.to_int(line, t, wv);
+                                have_n = true;
+                                if when_n < 0 || when_n > 255 {
+                                    reason = bad_when();
+                                }
+                                if json.string_equals(line, t, wj, "exit") {
+                                    when_kind = 1;
+                                } else {
+                                    when_kind = 2;
+                                }
+                            } else {
+                                reason = bad_when();
+                            }
+                            wj = json.skip(t, wv);
+                            wleft = wleft - 1;
+                        }
+                        if reason == 0 && !(have_step && have_n) {
+                            reason = bad_when();
+                        }
+                    }
+                }
+                j = json.skip(t, v);
+                left = left - 1;
+            }
+            if reason == 0 && seen / pow2(1) % 2 == 0 {
+                reason = missing();
+                buffer.drop(heap, key);
+                key = buffer.append(heap, buffer.empty(heap, 4), "id");
+            } else if reason == 0 && seen / pow2(2) % 2 == 0 {
+                reason = missing();
+                buffer.drop(heap, key);
+                key = buffer.append(heap, buffer.empty(heap, 8), "program");
+            } else if reason == 0 {
+                var good = false;
+                borrow id as &ib in {
+                    good = valid_id(buffer.bytes(ib));
+                }
+                if !good {
+                    reason = bad_id();
+                    buffer.drop(heap, key);
+                    key = buffer.append(heap, buffer.empty(heap, 4), "id");
+                }
+            }
+        }
+    }
+    unbox_slice(heap, tape);
+    return Spec { id: id, program: program, args: args, ins: ins, outs: outs, stdin: stdin, stdout: stdout, after: after, when_step: when_step, when_kind: when_kind, when_n: when_n, det: det, allow: allow, timeout: timeout, most: most, reason: reason, key: key };
+}
+
+fn pow2(m: int) -> [] int {
+    var n = 1;
+    var i = 0;
+    while i < m {
+        n = n * 2;
+        i = i + 1;
+    }
+    return n;
+}
+
+// The id of a step line, for a caller that wants nothing else of it.
+pub fn line_id[&h, &l](heap: &!h Heap, line: &l [byte]) -> [heap] buffer.Buffer {
+    let spec = parse_line(heap, line);
+    let Spec { id, program, args, ins, outs, stdin, stdout, after, when_step, when_kind, when_n, det, allow, timeout, most, reason, key } = spec;
+    buffer.drop(heap, program);
+    buffer.drop(heap, args);
+    buffer.drop(heap, ins);
+    buffer.drop(heap, outs);
+    buffer.drop(heap, stdin);
+    buffer.drop(heap, stdout);
+    buffer.drop(heap, after);
+    buffer.drop(heap, when_step);
+    buffer.drop(heap, key);
+    return id;
+}

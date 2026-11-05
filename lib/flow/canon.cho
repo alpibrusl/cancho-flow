@@ -109,3 +109,33 @@ pub fn record[&h, &i, &o](heap: &!h Heap, inputs: &i [byte], outcome: &o [byte])
     buffer.drop(heap, check);
     return r;
 }
+
+// The record of a run of a plan (docs/design.md section 14): `{"schema":"flow.plan.v1","id":..,"claim":..,"flow":..,"check":..}` and a newline.
+// `claim` is `{"plan":{"path":..,"bytes":N,"sha256":..},"steps":[..],"stopped":null|"id"}`, `id` is the SHA-256 of its exact bytes, and `check`
+// is the SHA-256 of every byte before `,"check":"`, as a step record's is.
+pub fn plan_record[&h, &c](heap: &!h Heap, claim: &c [byte]) -> [heap] buffer.Buffer {
+    let id = atomic.sha256_hex(heap, claim);
+    var r = buffer.empty(heap, 256 + len(claim));
+    r = buffer.append(heap, r, "{\"schema\":\"flow.plan.v1\",\"id\":\"");
+    borrow id as &a in {
+        r = buffer.append(heap, r, buffer.bytes(a));
+    }
+    r = buffer.append(heap, r, "\",\"claim\":");
+    r = buffer.append(heap, r, claim);
+    r = buffer.append(heap, r, ",\"flow\":\"");
+    r = buffer.append(heap, r, config.version());
+    r = buffer.append(heap, r, "\"");
+    var check = buffer.empty(heap, 1);
+    borrow r as &p in {
+        buffer.drop(heap, check);
+        check = atomic.sha256_hex(heap, buffer.bytes(p));
+    }
+    r = buffer.append(heap, r, ",\"check\":\"");
+    borrow check as &c2 in {
+        r = buffer.append(heap, r, buffer.bytes(c2));
+    }
+    r = buffer.append(heap, r, "\"}\n");
+    buffer.drop(heap, id);
+    buffer.drop(heap, check);
+    return r;
+}

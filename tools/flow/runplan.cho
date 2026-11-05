@@ -1,0 +1,895 @@
+edition 7;
+
+module flow.runplan;
+
+// `flow run`: a plan (JSON lines, `flow.plan`) checked whole before anything starts, then its steps in order, each one `flow.stepper.step`
+// (docs/design.md sections 6 and 14). A condition is the exit status of an earlier step; the first step that fails stops the plan and the
+// answer names where to continue; the run is recorded as a plan record (`canon.plan_record`) that holds the digest of the plan text and
+// the `id.oid` of every step it ran, so that it is a claim `flow-records check` can verify.
+
+import std.buffer;
+import std.bytes;
+import std.json;
+import toolbox.atomic;
+import toolbox.fail;
+import toolbox.text;
+import flow.argvp;
+import flow.canon;
+import flow.config;
+import flow.files;
+import flow.plan;
+import flow.stepper;
+
+// ---- refusals --------------------------------------------------------------------------------------------------------------------------
+
+// A refusal about step `step` (or the whole plan when empty) at line `line` of the plan, with the member it is about.
+fn plan_error[&h, &s, &k](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message: &static [byte], hint: &static [byte], line: int, step: &s [byte], key: &k [byte]) -> [heap] fail.Errors {
+    var w = fail.open_in(heap, stepper.extra(), rule, message, hint);
+    w = fail.no_repair(heap, w);
+    w = fail.detail_open(heap, w);
+    w = json.put_key(heap, w, "line");
+    w = json.put_int(heap, w, line);
+    w = json.put_key(heap, w, "step");
+    w = text.put(heap, w, step);
+    w = json.put_key(heap, w, "key");
+    w = text.put(heap, w, key);
+    return fail.add(heap, e, w);
+}
+
+fn reason_name(r: int) -> [] &static [byte] {
+    if r == plan.not_object() {
+        return "the line is not one JSON object";
+    }
+    if r == plan.unknown_key() {
+        return "a member this format has not got";
+    }
+    if r == plan.wrong_type() {
+        return "a value of the wrong type";
+    }
+    if r == plan.missing() {
+        return "a member the step needs is not there";
+    }
+    if r == plan.bad_id() {
+        return "an id is 1 to 64 of letters, digits, `_` and `-`";
+    }
+    if r == plan.bad_text() {
+        return "a zero byte in an argument, or a comma or nothing in a path";
+    }
+    if r == plan.bad_when() {
+        return "when is {\"step\":ID,\"exit\":N} or {\"step\":ID,\"exit_not\":N}, N from 0 to 255";
+    }
+    if r == plan.bad_number() {
+        return "a number outside its range";
+    }
+    return "a member given twice";
+}
+
+// ---- what the earlier steps did ------------------------------------------------------------------------------------------------------
+
+// One line per step that has been dealt with: `id`, 1, `r` (ran) or `s` (skipped), 1, the exit status in decimal or `-`, and a newline.
+fn status_add[&h, &i](heap: &!h Heap, st: buffer.Buffer, id: &i [byte], ran: bool, exit: int) -> [heap] buffer.Buffer {
+    var b = buffer.append(heap, st, id);
+    b = buffer.push(heap, b, byte_of(1));
+    if ran {
+        b = buffer.push(heap, b, byte_of('r'));
+    } else {
+        b = buffer.push(heap, b, byte_of('s'));
+    }
+    b = buffer.push(heap, b, byte_of(1));
+    if exit < 0 {
+        b = buffer.push(heap, b, byte_of('-'));
+    } else {
+        b = buffer.push_nat(heap, b, exit);
+    }
+    return buffer.push(heap, b, byte_of('\n'));
+}
+
+// 0 when the step is not in the list, 1 when it ran, 2 when it was skipped; and its exit status (-1 for none).
+fn status_of[&t, &i](st: &t [byte], id: &i [byte]) -> [] (int, int) {
+    var from = 0;
+    var p = 0;
+    while p <= len(st) {
+        if p == len(st) || int_of(st[p]) == '\n' {
+            let line = st[from..p];
+            if len(line) > len(id) + 2 && bytes.starts_with(line, id) && int_of(line[len(id)]) == 1 {
+                let state = int_of(line[len(id) + 1]);
+                var n = 0 - 1;
+                if int_of(line[len(id) + 3]) != '-' {
+                    n = 0;
+                    var q = len(id) + 3;
+                    while q < len(line) {
+                        n = n * 10 + int_of(line[q]) - '0';
+                        q = q + 1;
+                    }
+                }
+                if state == 'r' {
+                    return (1, n);
+                }
+                return (2, n);
+            }
+            from = p + 1;
+        }
+        p = p + 1;
+    }
+    return (0, 0 - 1);
+}
+
+fn known[&t, &i](st: &t [byte], id: &i [byte]) -> [] bool {
+    let (found, unused) = status_of(st, id);
+    return found != 0;
+}
+
+// ---- the check of the whole plan -----------------------------------------------------------------------------------------------------
+
+// Entries of the outputs seen so far: `path`, 1, `step`, 1, `when step`, 1, kind digit, 1, the number, newline.
+fn out_add[&h, &p, &s, &w](heap: &!h Heap, b: buffer.Buffer, path: &p [byte], step: &s [byte], wstep: &w [byte], kind: int, n: int) -> [heap] buffer.Buffer {
+    var o = buffer.append(heap, b, path);
+    o = buffer.push(heap, o, byte_of(1));
+    o = buffer.append(heap, o, step);
+    o = buffer.push(heap, o, byte_of(1));
+    o = buffer.append(heap, o, wstep);
+    o = buffer.push(heap, o, byte_of(1));
+    o = buffer.push_nat(heap, o, kind);
+    o = buffer.push(heap, o, byte_of(1));
+    o = buffer.push_nat(heap, o, n);
+    return buffer.push(heap, o, byte_of('\n'));
+}
+
+// The `k`th field (from 0) of an entry line, separated by the byte 1.
+fn field[&t](line: &t [byte], k: int) -> [] &t [byte] {
+    var seen = 0;
+    var from = 0;
+    var i = 0;
+    while i < len(line) {
+        if int_of(line[i]) == 1 {
+            if seen == k {
+                return line[from..i];
+            }
+            seen = seen + 1;
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    if seen == k {
+        return line[from..len(line)];
+    }
+    return line[0..0];
+}
+
+fn number[&t](text: &t [byte]) -> [] int {
+    var n = 0;
+    var i = 0;
+    while i < len(text) {
+        n = n * 10 + int_of(text[i]) - '0';
+        i = i + 1;
+    }
+    return n;
+}
+
+// Two steps may declare one output when their conditions are the exclusive pair of one step: `exit N` on one and `exit_not N` on the other.
+fn exclusive[&w1, &w2](step1: &w1 [byte], kind1: int, n1: int, step2: &w2 [byte], kind2: int, n2: int) -> [] bool {
+    if len(step1) == 0 || !bytes.equal(step1, step2) || n1 != n2 {
+        return false;
+    }
+    return kind1 == 1 && kind2 == 2 || kind1 == 2 && kind2 == 1;
+}
+
+// Look for an earlier step that declared `path` under a condition that is not exclusive with this one. Answers its id, or nothing.
+fn collision[&t, &p, &w](seen: &t [byte], path: &p [byte], wstep: &w [byte], kind: int, n: int) -> [] &t [byte] {
+    var from = 0;
+    var i = 0;
+    while i <= len(seen) {
+        if i == len(seen) || int_of(seen[i]) == '\n' {
+            let line = seen[from..i];
+            if len(line) > 0 && bytes.equal(field(line, 0), path) {
+                if !exclusive(field(line, 2), number(field(line, 3)), number(field(line, 4)), wstep, kind, n) {
+                    return field(line, 1);
+                }
+            }
+            from = i + 1;
+        }
+        i = i + 1;
+    }
+    return seen[0..0];
+}
+
+// The comma list `list`, every element checked as a declared path (and, with `into`, appended in normal form to the outputs seen).
+fn check_paths[&h, &f, &r, &l, &s](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], list: &l [byte], is_out: bool, step: &s [byte], wstep: &s [byte], kind: int, n: int, line_no: int, seen: buffer.Buffer, errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (buffer.Buffer, fail.Errors) {
+    var e = errs;
+    var out_seen = seen;
+    var k = 0;
+    while k < files.elements(list) {
+        let (declared, after) = files.declare(heap, fs, root, files.element(list, k), false, e);
+        e = after;
+        let files.Declared { rel, hex, size, errno } = declared;
+        buffer.drop(heap, hex);
+        if errno == 0 && is_out {
+            borrow rel as &rr in {
+                var clash = false;
+                borrow out_seen as &os in {
+                    let other = collision(buffer.bytes(os), buffer.bytes(rr), wstep, kind, n);
+                    if len(other) > 0 {
+                        clash = true;
+                        e = plan_error(heap, e, "flow.plan.output-collision", "two steps declare one output and their conditions are not the exclusive pair of one step", "give one of them another file, or make their `when` the pair `exit N` and `exit_not N` of one step", line_no, step, other);
+                    }
+                }
+                if !clash {
+                    out_seen = out_add(heap, out_seen, buffer.bytes(rr), step, wstep, kind, n);
+                }
+            }
+        }
+        buffer.drop(heap, rel);
+        k = k + 1;
+    }
+    return (out_seen, e);
+}
+
+// The normal form of a declared path, its errno (-1 when it was refused) and the errors.
+fn relative[&h, &f, &r, &p](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], given: &p [byte], errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (buffer.Buffer, int, fail.Errors) {
+    let (declared, e) = files.declare(heap, fs, root, given, false, errs);
+    let files.Declared { rel, hex, size, errno } = declared;
+    buffer.drop(heap, hex);
+    return (rel, errno, e);
+}
+
+// One step's own checks, against the ids seen before it.
+fn check_step[&h, &f, &r, &t, &sp](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], ids: &t [byte], seen_outs: buffer.Buffer, spec: &sp plan.Spec, line_no: int, errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] (buffer.Buffer, fail.Errors) {
+    var e = errs;
+    var outs = seen_outs;
+    let id = plan.id_of(spec);
+    if spec.reason != 0 {
+        return (outs, plan_error(heap, e, "flow.plan.syntax", reason_name(spec.reason), "a step is one JSON object per line with the members id, program, args, in, out, stdin, stdout, deterministic, allow_failure, after, when, timeout_ms and max_output", line_no, id, plan.key_of(spec)));
+    }
+    if known(ids, id) {
+        e = plan_error(heap, e, "flow.plan.duplicate-id", "two steps of the plan have one id", "give every step its own id", line_no, id, "id");
+    }
+    if len(plan.after_of(spec)) > 0 && !known(ids, plan.after_of(spec)) {
+        e = plan_error(heap, e, "flow.plan.order", "`after` names a step that is not an earlier step of the plan", "steps run in file order: name a step above this one", line_no, id, "after");
+    }
+    if spec.when_kind != 0 && !known(ids, plan.when_step_of(spec)) {
+        e = plan_error(heap, e, "flow.plan.order", "`when` names a step that is not an earlier step of the plan", "a condition is the exit status of a step above this one", line_no, id, "when");
+    }
+    if !stepper.plain_name(plan.program_of(spec)) {
+        e = plan_error(heap, e, "flow.program-name", "a program is a name in the programs directory, not a path", "write the bare name, e.g. `ml`", line_no, id, "program");
+    } else {
+        let (unused_hex, errno, unused_size) = files.hash_program(heap, fs, plan.program_of(spec));
+        buffer.drop(heap, unused_hex);
+        if errno == 2 {
+            e = plan_error(heap, e, "flow.program-not-found", "the programs directory holds no program of that name", "the deployer chooses what is in the directory; introspect says what it holds", line_no, id, "program");
+        } else if errno != 0 {
+            e = plan_error(heap, e, "flow.spawn-failed", "the program's file could not be read to be recorded, so it cannot be started", "nothing ran", line_no, id, "program");
+        }
+    }
+    if argvp.count(plan.args_of(spec)) > config.most_args() {
+        e = plan_error(heap, e, "flow.args.too-many", "more arguments than a record may hold", "a record holds at most 4096 arguments", line_no, id, "args");
+    }
+    if files.elements(plan.ins_of(spec)) + files.elements(plan.outs_of(spec)) > config.most_files() {
+        e = plan_error(heap, e, "flow.files.too-many", "more declared files than a record may hold", "a record holds at most 64 declared files, inputs and outputs together", line_no, id, "in");
+    }
+    let (o1, e1) = check_paths(heap, fs, root, plan.ins_of(spec), false, id, plan.when_step_of(spec), spec.when_kind, spec.when_n, line_no, outs, e);
+    let (o2, e2) = check_paths(heap, fs, root, plan.outs_of(spec), true, id, plan.when_step_of(spec), spec.when_kind, spec.when_n, line_no, o1, e1);
+    outs = o2;
+    e = e2;
+    if len(plan.stdin_of(spec)) > 0 {
+        let (declared, after_in) = files.declare(heap, fs, root, plan.stdin_of(spec), false, e);
+        e = after_in;
+        files.drop_declared(heap, declared);
+    }
+    if len(plan.stdout_of(spec)) > 0 {
+        let (rel, errno, after_out) = relative(heap, fs, root, plan.stdout_of(spec), e);
+        e = after_out;
+        var listed = false;
+        var q = 0;
+        while q < files.elements(plan.outs_of(spec)) {
+            let (rel2, errno2, after_q) = relative(heap, fs, root, files.element(plan.outs_of(spec), q), e);
+            e = after_q;
+            borrow rel as &relb in {
+                borrow rel2 as &rel2b in {
+                    if bytes.equal(buffer.bytes(relb), buffer.bytes(rel2b)) {
+                        listed = true;
+                    }
+                }
+            }
+            buffer.drop(heap, rel2);
+            q = q + 1;
+        }
+        if errno == 0 && !listed {
+            e = plan_error(heap, e, "flow.stdout.undeclared", "`stdout` names a file that `out` does not list", "add the file to `out`: the file the standard output is written to is an output of the step", line_no, id, "stdout");
+        }
+        buffer.drop(heap, rel);
+    }
+    return (outs, e);
+}
+
+// Everything that can be known about the plan before a step starts: its lines, the order, the programs, the paths, the bounds.
+fn check_plan[&h, &f, &r, &t](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], text: &t [byte], n: int, errs: fail.Errors) -> [heap, fs_read(""), dir_read, file_read] fail.Errors {
+    var e = errs;
+    var ids = buffer.empty(heap, 64);
+    var outs = buffer.empty(heap, 64);
+    var k = 0;
+    while k < n {
+        let spec = plan.parse_line(heap, plan.line_at(text, k));
+        borrow spec as &sp in {
+            borrow ids as &idb in {
+                let (o, e2) = check_step(heap, fs, root, buffer.bytes(idb), outs, sp, plan.physical(text, k), e);
+                outs = o;
+                e = e2;
+            }
+            ids = status_add(heap, ids, plan.id_of(sp), true, 0 - 1);
+        }
+        plan.drop_spec(heap, spec);
+        k = k + 1;
+    }
+    buffer.drop(heap, ids);
+    buffer.drop(heap, outs);
+    return e;
+}
+
+// ---- the answer and the record ---------------------------------------------------------------------------------------------------------
+
+// `{"id":..,"state":"ran"|"skipped"|"failed","run":"id.oid"|null,"exit":N|null}`
+fn entry[&h, &i, &r](heap: &!h Heap, b: buffer.Buffer, id: &i [byte], state: &static [byte], run: &r [byte], exit: int) -> [heap] buffer.Buffer {
+    var o = canon.lit(heap, b, "{\"id\":");
+    o = canon.str(heap, o, id);
+    o = canon.lit(heap, o, ",\"state\":\"");
+    o = canon.lit(heap, o, state);
+    o = canon.lit(heap, o, "\",\"run\":");
+    if len(run) == 0 {
+        o = canon.lit(heap, o, "null");
+    } else {
+        o = canon.str(heap, o, run);
+    }
+    o = canon.lit(heap, o, ",\"exit\":");
+    if exit < 0 {
+        o = canon.lit(heap, o, "null");
+    } else {
+        o = canon.nat(heap, o, exit);
+    }
+    return canon.lit(heap, o, "}");
+}
+
+// The text of a string member of the object at node `obj`, decoded; empty when it is not there.
+fn text_of[&h, &s, &t](heap: &!h Heap, src: &s [byte], tape: &t [int], obj: int, key: &static [byte]) -> [heap] buffer.Buffer {
+    let v = json.get(src, tape, obj, key);
+    var n = json.string_length(src, tape, v);
+    if n < 0 {
+        n = 0;
+    }
+    var size = n;
+    if size < 1 {
+        size = 1;
+    }
+    let raw = box_slice(heap, size, byte_of(0));
+    var out = buffer.empty(heap, size + 1);
+    borrow mut raw as &!rw in {
+        if n > 0 {
+            json.string_into(src, tape, v, contents(rw)[0..n]);
+        }
+        out = buffer.append(heap, out, contents(rw)[0..n]);
+    }
+    unbox_slice(heap, raw);
+    return out;
+}
+
+// What a step's answer said: the record it made (`id.oid`, empty when none) and the exit status (-1 when the program had none).
+fn made[&h, &p](heap: &!h Heap, payload: &p [byte]) -> [heap] (buffer.Buffer, int) {
+    var run = buffer.empty(heap, 1);
+    var exit = 0 - 1;
+    if len(payload) == 0 {
+        return (run, exit);
+    }
+    let tape = box_slice(heap, json.tape_len(payload) + 3, 0);
+    var nodes = 0;
+    borrow mut tape as &!tw in {
+        nodes = json.parse(payload, contents(tw));
+    }
+    if nodes > 0 {
+        borrow tape as &tr in {
+            let t = contents(tr);
+            let rec = json.get(payload, t, 0, "record");
+            let id = text_of(heap, payload, t, rec, "id");
+            let oid = text_of(heap, payload, t, rec, "oid");
+            buffer.drop(heap, run);
+            run = buffer.append(heap, id, ".");
+            borrow oid as &ob in {
+                run = buffer.append(heap, run, buffer.bytes(ob));
+            }
+            buffer.drop(heap, oid);
+            let x = json.get(payload, t, json.get(payload, t, 0, "outcome"), "exit");
+            if json.is_int(t, x) {
+                exit = json.to_int(payload, t, x);
+            }
+        }
+    }
+    unbox_slice(heap, tape);
+    return (run, exit);
+}
+
+// ---- the run ---------------------------------------------------------------------------------------------------------------------------
+
+// Whether `src` is a plan record whose `check` holds: the SHA-256 of every byte before `,"check":"`.
+fn check_holds[&h, &s](heap: &!h Heap, src: &s [byte]) -> [heap] bool {
+    let cut = len(src) - 64 - 3 - 10;
+    if cut <= 0 || !bytes.equal(src[cut..cut + 10], ",\"check\":\"") || !bytes.equal(src[cut + 74..len(src)], "\"}\n") {
+        return false;
+    }
+    let want = atomic.sha256_hex(heap, src[0..cut]);
+    var same = false;
+    borrow want as &wb in {
+        same = bytes.equal(buffer.bytes(wb), src[cut + 10..cut + 74]);
+    }
+    buffer.drop(heap, want);
+    return same;
+}
+
+// Whether a buffer holds anything, and the buffer back.
+fn has_text(b: buffer.Buffer) -> [] (buffer.Buffer, bool) {
+    var n = 0;
+    borrow b as &bb in {
+        n = buffer.size(bb);
+    }
+    return (b, n > 0);
+}
+
+// One entry of a stopped run's steps, carried into the record of the run that continues it.
+fn carry[&h, &s, &t, &l](heap: &!h Heap, entries: buffer.Buffer, statuses: buffer.Buffer, src: &s [byte], t: &t [int], j: int, sid: &l [byte]) -> [heap] (buffer.Buffer, buffer.Buffer) {
+    var en = entries;
+    var st = statuses;
+    let state = text_of(heap, src, t, j, "state");
+    let run = text_of(heap, src, t, j, "run");
+    var exit = 0 - 1;
+    let xv = json.get(src, t, j, "exit");
+    if json.is_int(t, xv) {
+        exit = json.to_int(src, t, xv);
+    }
+    let (en1, any) = has_text(en);
+    en = en1;
+    if any {
+        en = buffer.push(heap, en, byte_of(','));
+    }
+    borrow state as &sb in {
+        borrow run as &rb in {
+            if bytes.equal(buffer.bytes(sb), "skipped") {
+                en = entry(heap, en, sid, "skipped", "", 0 - 1);
+                st = status_add(heap, st, sid, false, 0 - 1);
+            } else {
+                en = entry(heap, en, sid, "ran", buffer.bytes(rb), exit);
+                st = status_add(heap, st, sid, true, exit);
+            }
+        }
+    }
+    buffer.drop(heap, state);
+    buffer.drop(heap, run);
+    return (en, st);
+}
+
+// Load the plan record `name` of the record directory and check it is a record of this plan that stopped. Answers the entries and statuses
+// of the steps before the one it stopped at, that step's index, and whether the record was good.
+fn load_resume[&h, &d, &n, &t, &x](heap: &!h Heap, records: &d Dir, name: &n [byte], plan_hex: &x [byte], text: &t [byte], count: int) -> [heap, dir_read, file_read] (buffer.Buffer, buffer.Buffer, int, bool) {
+    let (got, errno, big) = atomic.read_all(heap, dir_open_read(records, name), config.most_record_bytes(), buffer.empty(heap, 4096));
+    var entries = buffer.empty(heap, 64);
+    var statuses = buffer.empty(heap, 64);
+    var from = 0;
+    var good = false;
+    if errno == 0 && !big {
+        borrow got as &gb in {
+            let src = buffer.bytes(gb);
+            let checked = check_holds(heap, src);
+            let tape = box_slice(heap, json.tape_len(src) + 3, 0);
+            var nodes = 0;
+            borrow mut tape as &!tw in {
+                nodes = json.parse(src, contents(tw));
+            }
+            if nodes > 0 && checked {
+                borrow tape as &tr in {
+                    let t = contents(tr);
+                    let claim = json.get(src, t, 0, "claim");
+                    let sha = text_of(heap, src, t, json.get(src, t, claim, "plan"), "sha256");
+                    let stopped = text_of(heap, src, t, claim, "stopped");
+                    let steps = json.get(src, t, claim, "steps");
+                    var same_plan = false;
+                    borrow sha as &shb in {
+                        same_plan = bytes.equal(buffer.bytes(shb), plan_hex);
+                    }
+                    var did_stop = false;
+                    borrow stopped as &stz in {
+                        did_stop = buffer.size(stz) > 0;
+                    }
+                    if same_plan && json.is_array(t, steps) && did_stop {
+                        var j = steps + 1;
+                        var left = json.count(t, steps);
+                        var idx = 0;
+                        var found = false;
+                        var consistent = true;
+                        while left > 0 && !found && consistent {
+                            let sid = text_of(heap, src, t, j, "id");
+                            let pid = plan.line_id(heap, plan.line_at(text, idx));
+                            borrow sid as &sidb in {
+                                borrow pid as &pidb in {
+                                    borrow stopped as &stb in {
+                                        if !bytes.equal(buffer.bytes(sidb), buffer.bytes(pidb)) {
+                                            consistent = false;
+                                        } else if bytes.equal(buffer.bytes(sidb), buffer.bytes(stb)) {
+                                            found = true;
+                                        } else {
+                                            let (en2, st2) = carry(heap, entries, statuses, src, t, j, buffer.bytes(sidb));
+                                            entries = en2;
+                                            statuses = st2;
+                                            idx = idx + 1;
+                                        }
+                                    }
+                                }
+                            }
+                            buffer.drop(heap, sid);
+                            buffer.drop(heap, pid);
+                            j = json.skip(t, j);
+                            left = left - 1;
+                        }
+                        if found && consistent && idx < count {
+                            good = true;
+                            from = idx;
+                        }
+                    }
+                    buffer.drop(heap, sha);
+                    buffer.drop(heap, stopped);
+                }
+            }
+            unbox_slice(heap, tape);
+        }
+    }
+    buffer.drop(heap, got);
+    return (entries, statuses, from, good);
+}
+
+// Start one step of the plan: its standard input read, its standard output named, and `stepper.step` run with errors of its own. Answers the
+// step's answer data (empty when it made no record) and its errors.
+fn start_step[&h, &f, &x, &c, &d, &r, &a, &i, &o, &g, &u, &w](heap: &!h Heap, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, records: &d Dir, root: &r [byte], program: &w [byte], args: &a [byte], ins: &i [byte], outs: &o [byte], stdin_path: &g [byte], stdout_path: &u [byte], det: bool, allow: bool, timeout: int, most: int, most_in: int) -> [heap, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, fail.Errors) {
+    var e = fail.empty_in(heap, stepper.extra());
+    var input = buffer.empty(heap, 1);
+    var out_rel = buffer.empty(heap, 1);
+    var refused = false;
+    if len(stdin_path) > 0 {
+        let (data, errno, big, rel, after) = files.read_declared(heap, fs, root, stdin_path, most_in, e);
+        e = after;
+        buffer.drop(heap, input);
+        input = data;
+        buffer.drop(heap, rel);
+        if errno > 0 {
+            e = fail.io_error(heap, e, errno, false, stdin_path);
+        } else if big {
+            e = fail.simple(heap, e, "limit.input-too-large", "the standard input file is larger than --max-stdin", "raise --max-stdin, up to 67108864", "", "");
+        }
+    }
+    if len(stdout_path) > 0 {
+        let (declared, after) = files.declare(heap, fs, root, stdout_path, false, e);
+        e = after;
+        let files.Declared { rel, hex, size, errno } = declared;
+        buffer.drop(heap, hex);
+        buffer.drop(heap, out_rel);
+        out_rel = rel;
+    }
+    borrow e as &er in {
+        refused = fail.count(er) > 0;
+    }
+    var payload = buffer.empty(heap, 1);
+    if !refused {
+        borrow input as &ib in {
+            borrow out_rel as &ob in {
+                let (pl, ot, et, e2) = stepper.step(heap, args, len(stdin_path) > 0, buffer.bytes(ob), fs, exec, clock, records, root, program, buffer.bytes(ib), ins, outs, det, allow, false, timeout, most, e);
+                buffer.drop(heap, payload);
+                payload = pl;
+                buffer.drop(heap, ot);
+                buffer.drop(heap, et);
+                e = e2;
+            }
+        }
+    }
+    buffer.drop(heap, input);
+    buffer.drop(heap, out_rel);
+    return (payload, e);
+}
+
+fn plan_head[&h, &p, &x](heap: &!h Heap, b: buffer.Buffer, path: &p [byte], size: int, hex: &x [byte]) -> [heap] buffer.Buffer {
+    var o = canon.lit(heap, b, "{\"path\":");
+    o = canon.str(heap, o, path);
+    o = canon.lit(heap, o, ",\"bytes\":");
+    o = canon.nat(heap, o, size);
+    o = canon.lit(heap, o, ",\"sha256\":\"");
+    o = canon.raw(heap, o, hex);
+    return canon.lit(heap, o, "\"");
+}
+
+// Append the text of a buffer to another as canonical text already (the buffer holds rendered JSON).
+fn put[&h, &b](heap: &!h Heap, dst: buffer.Buffer, src: &b buffer.Buffer) -> [heap] buffer.Buffer {
+    return buffer.append(heap, dst, buffer.bytes(src));
+}
+
+// The record of the run, written beside the step records: the claim, the record made of it, the name that is the hash of the claim. Answers the
+// name, the hash, whether it was written, and the errors.
+fn write_record[&h, &d, &c](heap: &!h Heap, records: &d Dir, claim: &c [byte], errs: fail.Errors) -> [heap, dir_read, dir_write, file_read, file_write] (buffer.Buffer, buffer.Buffer, bool, fail.Errors) {
+    var e = errs;
+    let rec = canon.plan_record(heap, claim);
+    let rid = atomic.sha256_hex(heap, claim);
+    var name = buffer.empty(heap, 80);
+    borrow rid as &rb in {
+        name = buffer.append(heap, name, buffer.bytes(rb));
+    }
+    name = buffer.append(heap, name, ".plan.json");
+    var written = false;
+    borrow name as &nb in {
+        borrow rid as &rb2 in {
+            borrow rec as &recb in {
+                let temp = atomic.temp_path(heap, buffer.bytes(nb), buffer.bytes(rb2));
+                var errno = 0;
+                borrow temp as &tp in {
+                    let (en, unused) = atomic.create(records, buffer.bytes(nb), buffer.bytes(tp), buffer.bytes(recb));
+                    errno = en;
+                }
+                buffer.drop(heap, temp);
+                if errno == 0 {
+                    written = true;
+                    atomic.sync_parent(records);
+                } else if errno == 17 {
+                    let (held, read_errno, too_big) = atomic.read_all(heap, dir_open_read(records, buffer.bytes(nb)), config.most_record_bytes(), buffer.empty(heap, 4096));
+                    var same = false;
+                    borrow held as &hb in {
+                        same = read_errno == 0 && !too_big && bytes.equal(buffer.bytes(hb), buffer.bytes(recb));
+                    }
+                    buffer.drop(heap, held);
+                    if !same {
+                        e = fail.simple(heap, e, "flow.record.damaged", "a file already under this plan record's name is not this record", "the name is the hash of the claim, so the file was edited or damaged; check it with flow-records", "file", buffer.bytes(nb));
+                    }
+                } else {
+                    e = fail.io_error(heap, e, errno, true, buffer.bytes(nb));
+                }
+            }
+        }
+    }
+    buffer.drop(heap, rec);
+    return (name, rid, written, e);
+}
+
+// The data of a dry run: the programs and arguments of every step.
+fn dry_payload[&h, &t, &x](heap: &!h Heap, head: &x [byte], text: &t [byte], n: int) -> [heap] buffer.Buffer {
+    var payload = canon.lit(heap, buffer.empty(heap, 256), "{\"plan\":");
+    payload = canon.raw(heap, payload, head);
+    payload = canon.lit(heap, payload, ",\"steps\":");
+    payload = canon.nat(heap, payload, n);
+    payload = canon.lit(heap, payload, "},\"dry_run\":true,\"steps\":[");
+    var k = 0;
+    while k < n {
+        let spec = plan.parse_line(heap, plan.line_at(text, k));
+        borrow spec as &sp in {
+            if k > 0 {
+                payload = buffer.push(heap, payload, byte_of(','));
+            }
+            payload = canon.lit(heap, payload, "{\"id\":");
+            payload = canon.str(heap, payload, plan.id_of(sp));
+            payload = canon.lit(heap, payload, ",\"program\":");
+            payload = canon.str(heap, payload, plan.program_of(sp));
+            payload = canon.lit(heap, payload, ",\"args\":[");
+            var j = 0;
+            while j < argvp.count(plan.args_of(sp)) {
+                if j > 0 {
+                    payload = buffer.push(heap, payload, byte_of(','));
+                }
+                payload = canon.str(heap, payload, argvp.at(plan.args_of(sp), j));
+                j = j + 1;
+            }
+            payload = canon.lit(heap, payload, "]}");
+        }
+        plan.drop_spec(heap, spec);
+        k = k + 1;
+    }
+    return canon.lit(heap, payload, "]}");
+}
+
+// `flow run`. Answers the data of the answer and the errors; with errors and a non-empty data, the run stopped and the data says where to continue.
+pub fn run_plan[&h, &f, &x, &c, &d, &r, &t, &q, &p](heap: &!h Heap, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, records: &d Dir, root: &r [byte], plan_rel: &q [byte], text: &t [byte], max_steps: int, dry: bool, resume: &p [byte], timeout_default: int, most_default: int, most_in: int, errs: fail.Errors) -> [heap, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, fail.Errors) {
+    var e = errs;
+    let n = plan.lines(text);
+    if n == 0 {
+        e = plan_error(heap, e, "flow.plan.empty", "the plan holds no step", "a plan is one JSON object per line, one step each", 0, "", "");
+    } else if n > max_steps {
+        e = plan_error(heap, e, "flow.plan.too-many-steps", "the plan holds more steps than --max-steps", "raise --max-steps (up to 1024) or split the plan", 0, "", "max-steps");
+    } else {
+        e = check_plan(heap, fs, root, text, n, e);
+    }
+    var refused = false;
+    borrow e as &er in {
+        refused = fail.count(er) > 0;
+    }
+    if refused {
+        return (buffer.empty(heap, 1), e);
+    }
+    let plan_hex = atomic.sha256_hex(heap, text);
+    var head = buffer.empty(heap, 128);
+    borrow plan_hex as &ph in {
+        head = plan_head(heap, head, plan_rel, len(text), buffer.bytes(ph));
+    }
+    var payload = buffer.empty(heap, 256);
+    if dry {
+        borrow head as &hb0 in {
+            buffer.drop(heap, payload);
+            payload = dry_payload(heap, buffer.bytes(hb0), text, n);
+        }
+        buffer.drop(heap, head);
+        buffer.drop(heap, plan_hex);
+        return (payload, e);
+    }
+
+    var entries = buffer.empty(heap, 256);
+    var statuses = buffer.empty(heap, 64);
+    var start = 0;
+    var resumable = true;
+    if len(resume) > 0 {
+        borrow plan_hex as &ph2 in {
+            let (re, rs, rf, rok) = load_resume(heap, records, resume, buffer.bytes(ph2), text, n);
+            buffer.drop(heap, entries);
+            buffer.drop(heap, statuses);
+            entries = re;
+            statuses = rs;
+            start = rf;
+            resumable = rok;
+        }
+        if !resumable {
+            e = plan_error(heap, e, "flow.plan.resume", "--resume names a plan record that is damaged, is of another plan, or did not stop", "pass the `resume.record` of the answer of the run that stopped, with the plan it ran", 0, "", "resume");
+        }
+    }
+    var stopped = buffer.empty(heap, 1);
+    var k = start;
+    while k < n && resumable {
+        let spec = plan.parse_line(heap, plan.line_at(text, k));
+        borrow spec as &sp in {
+            var go = true;
+            if sp.when_kind != 0 {
+                var state = 0;
+                var code = 0 - 1;
+                borrow statuses as &stb in {
+                    let (st, cd) = status_of(buffer.bytes(stb), plan.when_step_of(sp));
+                    state = st;
+                    code = cd;
+                }
+                if state != 1 {
+                    go = false;
+                } else if sp.when_kind == 1 {
+                    go = code == sp.when_n;
+                } else {
+                    go = code != sp.when_n;
+                }
+            }
+            let (en_t, any_entry) = has_text(entries);
+            entries = en_t;
+            if any_entry {
+                entries = buffer.push(heap, entries, byte_of(','));
+            }
+            if !go {
+                entries = entry(heap, entries, plan.id_of(sp), "skipped", "", 0 - 1);
+                statuses = status_add(heap, statuses, plan.id_of(sp), false, 0 - 1);
+            } else {
+                var t_ms = timeout_default;
+                if sp.timeout > 0 {
+                    t_ms = sp.timeout;
+                }
+                var cap = most_default;
+                if sp.most > 0 {
+                    cap = sp.most;
+                }
+                let (pl, e2) = start_step(heap, fs, exec, clock, records, root, plan.program_of(sp), plan.args_of(sp), plan.ins_of(sp), plan.outs_of(sp), plan.stdin_of(sp), plan.stdout_of(sp), sp.det, sp.allow, t_ms, cap, most_in);
+                var failed = false;
+                borrow e2 as &er2 in {
+                    failed = fail.count(er2) > 0;
+                }
+                var run = buffer.empty(heap, 1);
+                var code = 0 - 1;
+                borrow pl as &plb in {
+                    let (r2, c2) = made(heap, buffer.bytes(plb));
+                    buffer.drop(heap, run);
+                    run = r2;
+                    code = c2;
+                }
+                buffer.drop(heap, pl);
+                borrow run as &runb in {
+                    if failed {
+                        entries = entry(heap, entries, plan.id_of(sp), "failed", buffer.bytes(runb), code);
+                        buffer.drop(heap, stopped);
+                        stopped = buffer.append(heap, buffer.empty(heap, 16), plan.id_of(sp));
+                        fail.drop(heap, e);
+                        e = e2;
+                    } else {
+                        entries = entry(heap, entries, plan.id_of(sp), "ran", buffer.bytes(runb), code);
+                        statuses = status_add(heap, statuses, plan.id_of(sp), true, code);
+                        fail.drop(heap, e2);
+                    }
+                }
+                buffer.drop(heap, run);
+            }
+        }
+        plan.drop_spec(heap, spec);
+        let (st_t, did_stop) = has_text(stopped);
+        stopped = st_t;
+        if did_stop {
+            k = n;
+        } else {
+            k = k + 1;
+        }
+    }
+
+    if resumable {
+        // the claim: the plan, the steps and where it stopped; then its record
+        var claim = canon.lit(heap, buffer.empty(heap, 256), "{\"plan\":");
+        borrow head as &hb in {
+            claim = put(heap, claim, hb);
+        }
+        claim = canon.lit(heap, claim, "},\"steps\":[");
+        borrow entries as &eb in {
+            claim = put(heap, claim, eb);
+        }
+        claim = canon.lit(heap, claim, "],\"stopped\":");
+        borrow stopped as &sb in {
+            if buffer.size(sb) == 0 {
+                claim = canon.lit(heap, claim, "null");
+            } else {
+                claim = canon.str(heap, claim, buffer.bytes(sb));
+            }
+        }
+        claim = canon.lit(heap, claim, "}");
+        var name = buffer.empty(heap, 1);
+        var rid = buffer.empty(heap, 1);
+        var written = false;
+        borrow claim as &cb in {
+            let (nm, ri, wr, e3) = write_record(heap, records, buffer.bytes(cb), e);
+            buffer.drop(heap, name);
+            buffer.drop(heap, rid);
+            name = nm;
+            rid = ri;
+            written = wr;
+            e = e3;
+        }
+        payload = canon.lit(heap, payload, "{\"plan\":");
+        borrow head as &hb2 in {
+            payload = put(heap, payload, hb2);
+        }
+        payload = canon.lit(heap, payload, ",\"steps\":");
+        payload = canon.nat(heap, payload, n);
+        payload = canon.lit(heap, payload, "},\"record\":{\"file\":");
+        borrow name as &nb in {
+            payload = canon.str(heap, payload, buffer.bytes(nb));
+        }
+        payload = canon.lit(heap, payload, ",\"id\":\"");
+        borrow rid as &ridb in {
+            payload = canon.raw(heap, payload, buffer.bytes(ridb));
+        }
+        payload = canon.lit(heap, payload, "\",\"written\":");
+        payload = canon.boolean(heap, payload, written);
+        payload = canon.lit(heap, payload, "},\"steps\":[");
+        borrow entries as &eb2 in {
+            payload = put(heap, payload, eb2);
+        }
+        payload = canon.lit(heap, payload, "],\"stopped\":");
+        borrow stopped as &sb2 in {
+            if buffer.size(sb2) == 0 {
+                payload = canon.lit(heap, payload, "null");
+            } else {
+                payload = canon.str(heap, payload, buffer.bytes(sb2));
+                payload = canon.lit(heap, payload, ",\"resume\":{\"from_step\":");
+                payload = canon.str(heap, payload, buffer.bytes(sb2));
+                payload = canon.lit(heap, payload, ",\"record\":");
+                borrow name as &nb2 in {
+                    payload = canon.str(heap, payload, buffer.bytes(nb2));
+                }
+                payload = canon.lit(heap, payload, "}");
+            }
+        }
+        payload = canon.lit(heap, payload, "}");
+        buffer.drop(heap, claim);
+        buffer.drop(heap, rid);
+        buffer.drop(heap, name);
+    }
+    buffer.drop(heap, head);
+    buffer.drop(heap, plan_hex);
+    buffer.drop(heap, entries);
+    buffer.drop(heap, statuses);
+    buffer.drop(heap, stopped);
+    return (payload, e);
+}

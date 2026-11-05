@@ -23,7 +23,22 @@ import flow.files;
 import flow.scan;
 
 pub fn extra() -> [] &static [byte] {
-    return "flow.verb|2|never|the first operand is not a verb this program has (it has `step`);flow.program-name|2|never|the program is not one plain name (it is empty, `.`, `..` or has a `/`);flow.program-not-found|3|never|the programs directory holds no program of that name;flow.spawn-failed|8|never|the operating system could not start the program or its channels;flow.args.not-utf8|2|never|an argument, a declared path or the program name is not UTF-8, and a record holds only text;flow.args.too-many|2|never|more arguments than a record may hold;flow.files.too-many|2|never|more declared files than a record may hold;flow.record.too-many|8|never|the record directory already holds the most records;flow.record.damaged|8|never|a file already under this record's name is not this record;flow.step.failed|8|never|the program ended with a non-zero status or a signal (the record was written);flow.step.output-missing|8|never|the program ended with status 0 but did not leave a file declared with --out (the record was written);flow.stdin.conflict|2|never|--stdin and --stdin-file are both given, and a step has one standard input;flow.stdout.undeclared|2|never|--stdout-file names a file that --out does not list, and the file the standard output is written to is an output of the step;flow.step.not-deterministic|5|never|a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written);limit.timeout|8|never|the program ran past --timeout-ms and was killed;limit.output-too-large|8|never|the program wrote more than --max-output to one stream and was killed";
+    return "flow.verb|2|never|the first operand is not a verb this program has (it has `step`);flow.program-name|2|never|the program is not one plain name (it is empty, `.`, `..` or has a `/`);flow.program-not-found|3|never|the programs directory holds no program of that name;flow.spawn-failed|8|never|the operating system could not start the program or its channels;flow.args.not-utf8|2|never|an argument, a declared path or the program name is not UTF-8, and a record holds only text;flow.args.too-many|2|never|more arguments than a record may hold;flow.files.too-many|2|never|more declared files than a record may hold;flow.record.too-many|8|never|the record directory already holds the most records;flow.record.damaged|8|never|a file already under this record's name is not this record;flow.step.failed|8|never|the program ended with a non-zero status or a signal (the record was written);flow.step.output-missing|8|never|the program ended with status 0 but did not leave a file declared with --out (the record was written);flow.plan.syntax|2|never|a line of the plan is not one step the plan format reads (not a JSON object, an unknown or repeated member, a value of the wrong type, an id that is not 1 to 64 of letters, digits, `_` and `-`, a zero byte in an argument, a comma or nothing in a path, an exit status outside 0 to 255);flow.plan.empty|2|never|the plan holds no step;flow.plan.too-many-steps|2|never|the plan holds more steps than --max-steps;flow.plan.duplicate-id|2|never|two steps of the plan have one id;flow.plan.order|2|never|`after` or `when` names a step that is not an earlier step of the plan;flow.plan.output-collision|2|never|two steps declare one output and their conditions are not the exclusive pair `exit N` and `exit_not N` of one step;flow.plan.resume|2|never|--resume names a plan record that is damaged, is of another plan, or did not stop;flow.stdin.conflict|2|never|--stdin and --stdin-file are both given, and a step has one standard input;flow.stdout.undeclared|2|never|--stdout-file names a file that --out does not list, and the file the standard output is written to is an output of the step;flow.step.not-deterministic|5|never|a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written);limit.timeout|8|never|the program ran past --timeout-ms and was killed;limit.output-too-large|8|never|the program wrote more than --max-output to one stream and was killed";
+}
+
+// A plain name: not empty, not `.` or `..`, no `/`.
+pub fn plain_name[&n](name: &n [byte]) -> [] bool {
+    if len(name) == 0 || bytes.equal(name, ".") || bytes.equal(name, "..") {
+        return false;
+    }
+    var i = 0;
+    while i < len(name) {
+        if int_of(name[i]) == '/' {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
 }
 
 // ---- starting the program ------------------------------------------------
