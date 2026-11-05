@@ -150,6 +150,8 @@ def fixtures():
     f["flow.spawn-failed"] = lambda w: step(w, "--", "noexec")
     f["flow.args.not-utf8"] = lambda w: run(FLOW, ["step", "--root", ".", "--record", "records", "--", "true", b"\xff"], w.d)[1]
     f["flow.args.too-many"] = lambda w: step(w, "--", "true", *(["a"] * 4100))
+    f["flow.stdin.conflict"] = lambda w: step(w, "--stdin", "--stdin-file", "in.txt", "--", "true")
+    f["flow.stdout.undeclared"] = lambda w: step(w, "--stdout-file", "o.txt", "--", "true")
     f["flow.files.too-many"] = lambda w: step(w, "--in", ",".join("f%d" % i for i in range(65)), "--", "true")
 
     def too_many_records(w):
@@ -323,6 +325,63 @@ def g11_answer_output():
         must("stdout" not in doc["data"], "without --answer-output the answer carries no stream text")
 
 
+# ---- G12 the standard input and output of a step as files (design section 14, G2; gate P3) -------------------------------------------------
+
+def sha(b):
+    import hashlib
+    return hashlib.sha256(b).hexdigest()
+
+
+def read_record(w, rec):
+    return json.loads((w.d / "records" / rec["file"]).read_text())
+
+
+def g12_stdio_files():
+    with World() as w:
+        w.d.joinpath("in.txt").write_bytes(b"b\na\n")
+        # a pipeline of two steps joined by a file: the second step's recorded input digest is the first step's recorded output digest
+        rc, d1, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", "a.txt", "--out", "a.txt", "--", "cat")
+        must(rc == 0 and d1["ok"], "step 1: %s" % d1)
+        rc, d2, _ = flow(w.d, "--record", "records", "--stdin-file", "a.txt", "--stdout-file", "b.txt", "--out", "b.txt", "--", "cat")
+        must(rc == 0 and d2["ok"], "step 2: %s" % d2)
+        r1, r2 = read_record(w, d1["data"]["record"]), read_record(w, d2["data"]["record"])
+        want = sha(b"b\na\n")
+        must(w.d.joinpath("a.txt").read_bytes() == b"b\na\n" and w.d.joinpath("b.txt").read_bytes() == b"b\na\n", "the files hold the program's output")
+        must(r1["outcome"]["out"][0]["sha256"] == want and r1["outcome"]["stdout"]["sha256"] == want, "step 1 records the output digest")
+        must(r2["inputs"]["stdin"]["sha256"] == r1["outcome"]["out"][0]["sha256"], "step 2's input digest must be step 1's output digest")
+        must(r2["inputs"]["stdin"]["bytes"] == 4, "the recorded input size")
+        # the same step again is the same record, and an overwritten output is the program's new output
+        rc, d1b, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", "a.txt", "--out", "a.txt", "--", "cat")
+        must(d1b["data"]["record"]["written"] is False and d1b["data"]["record"]["file"] == d1["data"]["record"]["file"], "the same step is the same record")
+        w.d.joinpath("in.txt").write_bytes(b"zzz\n")
+        rc, d3, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", "a.txt", "--out", "a.txt", "--", "cat")
+        must(w.d.joinpath("a.txt").read_bytes() == b"zzz\n" and d3["data"]["record"]["file"] != d1["data"]["record"]["file"], "a rerun replaces the file")
+        # a subdirectory that exists, and one that does not
+        (w.d / "sub").mkdir()
+        rc, d4, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", "sub/x.txt", "--out", "sub/x.txt", "--", "cat")
+        must(rc == 0 and w.d.joinpath("sub/x.txt").read_bytes() == b"zzz\n", "a file in a subdirectory")
+        rc, d5, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", "nosub/x.txt", "--out", "nosub/x.txt", "--", "cat")
+        must(rc != 0 and rule(d5) == "io.not-found" and not (w.d / "nosub").exists(), "a missing directory is io.not-found and nothing is made: %s" % rule(d5))
+        # paths are checked as every declared path is
+        for given, tag in (("../o", "path.dotdot"), ("/abs/o", "path.absolute")):
+            rc, d6, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--stdout-file", given, "--out", given, "--", "cat")
+            must(rule(d6) == tag, "%s -> %s" % (given, rule(d6)))
+        rc, d7, _ = flow(w.d, "--record", "records", "--stdin-file", "../in.txt", "--", "cat")
+        must(rule(d7) == "path.dotdot", "stdin-file path: %s" % rule(d7))
+        rc, d8, _ = flow(w.d, "--record", "records", "--stdin-file", "missing.txt", "--", "cat")
+        must(rule(d8) == "io.not-found", "a missing stdin file: %s" % rule(d8))
+        rc, d9, _ = flow(w.d, "--record", "records", "--stdin-file", "in.txt", "--max-stdin", "2", "--", "cat")
+        must(rule(d9) == "limit.input-too-large", "a stdin file above --max-stdin: %s" % rule(d9))
+        # a program that is killed leaves no standard-output file
+        before = sorted(os.listdir(w.d / "records"))
+        rc, d10, _ = flow(w.d, "--record", "records", "--timeout-ms", "100", "--stdout-file", "k.txt", "--out", "k.txt", "--", "sleep", "5")
+        must(rule(d10) == "limit.timeout" and not (w.d / "k.txt").exists(), "a killed program writes no file: %s" % rule(d10))
+        # a refused step starts nothing and writes nothing
+        before = sorted(os.listdir(w.d / "records"))
+        rc, d11, _ = flow(w.d, "--record", "records", "--stdout-file", "n.txt", "--", "touch", "side-effect")
+        must(rule(d11) == "flow.stdout.undeclared" and not (w.d / "side-effect").exists() and sorted(os.listdir(w.d / "records")) == before, "an undeclared stdout file refuses before anything runs")
+
+
 # ---- G10 files ---------------------------------------------------------------
 
 def g10_files():
@@ -334,7 +393,7 @@ def g10_files():
 
 
 GATES = [("G1 canonical", g1_canonical), ("G2 damage", g2_damage), ("G3 refusals", g3_refusals), ("G4 bounds", g4_bounds),
-         ("G5 determinism", g5_determinism), ("G7 check", g7_check), ("G10 files", g10_files), ("G11 answer output", g11_answer_output)]
+         ("G5 determinism", g5_determinism), ("G7 check", g7_check), ("G10 files", g10_files), ("G11 answer output", g11_answer_output), ("G12 stdio files", g12_stdio_files)]
 
 
 def main():

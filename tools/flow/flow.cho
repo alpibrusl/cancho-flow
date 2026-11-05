@@ -32,21 +32,22 @@ import toolbox.out;
 import toolbox.path;
 import toolbox.place;
 import toolbox.text;
+import flow.argvp;
 import flow.canon;
 import flow.config;
 import flow.files;
 import flow.scan;
 
 fn extra() -> [] &static [byte] {
-    return "flow.verb|2|never|the first operand is not a verb this program has (it has `step`);flow.program-name|2|never|the program is not one plain name (it is empty, `.`, `..` or has a `/`);flow.program-not-found|3|never|the programs directory holds no program of that name;flow.spawn-failed|8|never|the operating system could not start the program or its channels;flow.args.not-utf8|2|never|an argument, a declared path or the program name is not UTF-8, and a record holds only text;flow.args.too-many|2|never|more arguments than a record may hold;flow.files.too-many|2|never|more declared files than a record may hold;flow.record.too-many|8|never|the record directory already holds the most records;flow.record.damaged|8|never|a file already under this record's name is not this record;flow.step.failed|8|never|the program ended with a non-zero status or a signal (the record was written);flow.step.output-missing|8|never|the program ended with status 0 but did not leave a file declared with --out (the record was written);flow.step.not-deterministic|5|never|a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written);limit.timeout|8|never|the program ran past --timeout-ms and was killed;limit.output-too-large|8|never|the program wrote more than --max-output to one stream and was killed";
+    return "flow.verb|2|never|the first operand is not a verb this program has (it has `step`);flow.program-name|2|never|the program is not one plain name (it is empty, `.`, `..` or has a `/`);flow.program-not-found|3|never|the programs directory holds no program of that name;flow.spawn-failed|8|never|the operating system could not start the program or its channels;flow.args.not-utf8|2|never|an argument, a declared path or the program name is not UTF-8, and a record holds only text;flow.args.too-many|2|never|more arguments than a record may hold;flow.files.too-many|2|never|more declared files than a record may hold;flow.record.too-many|8|never|the record directory already holds the most records;flow.record.damaged|8|never|a file already under this record's name is not this record;flow.step.failed|8|never|the program ended with a non-zero status or a signal (the record was written);flow.step.output-missing|8|never|the program ended with status 0 but did not leave a file declared with --out (the record was written);flow.stdin.conflict|2|never|--stdin and --stdin-file are both given, and a step has one standard input;flow.stdout.undeclared|2|never|--stdout-file names a file that --out does not list, and the file the standard output is written to is an output of the step;flow.step.not-deterministic|5|never|a step declared deterministic gave another outcome than an earlier record of the same inputs (nothing was written);limit.timeout|8|never|the program ran past --timeout-ms and was killed;limit.output-too-large|8|never|the program wrote more than --max-output to one stream and was killed";
 }
 
 fn flag_table() -> [] &static [byte] {
-    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);max-stdin||nat|none|1048576|the most standard input accepted with --stdin (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
+    return "root||path|root||resolve every path against this directory and refuse one outside it (default: the working directory);record||path|path-write||the directory that holds the records; it must exist beneath --root;in||text|path-read||the files the step reads, comma separated, relative to --root; each is hashed before the program starts;out||text|path-write||the files the step writes, comma separated, relative to --root; each is hashed after the program ends;stdin||bool|none||give the program this tool's standard input (hashed and recorded) as its standard input (default: nothing);stdin-file||text|path-read||a file beneath --root given to the program as its standard input (hashed and recorded as --stdin does; at most --max-stdin bytes);stdout-file||text|path-write||a file beneath --root the program's standard output is written to, atomically, after it ends (it must also be listed in --out, so it is hashed into the outcome as every output is; it is not written when the program was killed);max-stdin||nat|none|1048576|the most standard input accepted with --stdin or --stdin-file (ceiling 67108864);deterministic||bool|none||declare that the same inputs always give the same outcome: a second outcome for the same inputs is refused (default: every distinct outcome is kept);answer-output||bool|none||also put the program's standard output and standard error in the answer, as text (never in the record, which holds only their size and SHA-256);allow-failure||bool|none||a program that ends with a non-zero status is not a refusal (for a step whose job is to say no);timeout-ms||nat|none|30000|the longest the program may run, in milliseconds, after which it is killed (1 to 600000);max-output||nat|none|1048576|the most bytes kept from each of standard output and standard error, and the program is killed at the first byte past it (ceiling 67108864);format||choice:json/text|none|json|json for a record, text also writes the program's standard output to standard output and its standard error to standard error";
 }
 
 fn tool() -> [] describe.Tool {
-    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
+    return describe.Tool { name: "flow", version: "0.1.0", summary: "Start one program from the deployer's programs directory as a recorded step: exact arguments, no shell, a fixed environment, a deadline and an output cap, the files it reads and writes declared and hashed, and a canonical content-addressed record written. Opt-in: it can run whatever the directory holds, it does not sandbox it, and it sees only the files it is told about.", usage: "flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]", output: "document", schema: "flow.v1", flags: flag_table(), operands: "VERB|name|1|1|step;PROGRAM|name|1|1|a program name in the programs directory, never a path;ARG...|text|0||the program's arguments, passed byte for byte", rules: "args.unknown-flag;args.missing-value;args.bad-value;args.unexpected-value;args.duplicate-flag;args.missing-operand;path.empty;path.dotdot;path.absolute;path.outside-root;path.too-long;path.symlink;io.not-found;io.not-a-directory;io.permission-denied;io.is-a-directory;limit.input-too-large;flow.verb;flow.program-name;flow.program-not-found;flow.spawn-failed;flow.args.not-utf8;flow.args.too-many;flow.files.too-many;flow.record.too-many;flow.record.damaged;flow.step.failed;flow.step.output-missing;flow.stdin.conflict;flow.stdout.undeclared;flow.step.not-deterministic;limit.timeout;limit.output-too-large", extra_rules: extra(), limits: "timeout-ms|30000|600000;max-output|1048576|67108864;max-stdin|1048576|67108864", reversibility: "irreversible-consequential", stdin: "with --stdin", guarantees: "bounded_memory" };
 }
 
 fn built() -> [] describe.Built {
@@ -163,13 +164,52 @@ fn rule_error[&h](heap: &!h Heap, e: fail.Errors, rule: &static [byte], message:
     return fail.add(heap, e, w);
 }
 
+// Write `data` to the declared file `rel` (already in normal form), atomically, through a temporary in the same directory. The directory
+// must exist beneath the root. Answers an errno or 0.
+fn write_declared[&h, &f, &r, &p, &d](heap: &!h Heap, fs: &f Fs(""), root: &r [byte], rel: &p [byte], data: &d [byte]) -> [heap, fs_read(""), dir_read, dir_write, file_write] int {
+    var full = buffer.empty(heap, len(root) + len(rel) + 2);
+    if len(root) > 0 {
+        full = buffer.append(heap, full, root);
+        if !bytes.equal(root, "/") {
+            full = buffer.push(heap, full, byte_of('/'));
+        }
+    }
+    full = buffer.append(heap, full, rel);
+    var errno = 0;
+    borrow full as &fl in {
+        match place.parent(fs, root, rel, buffer.bytes(fl)) {
+            DirOpened::Failed(en) => {
+                errno = en;
+            }
+            DirOpened::Ok(opened) => {
+                var dir = opened;
+                let name = place.leaf(rel);
+                let hex = atomic.sha256_hex(heap, data);
+                borrow hex as &hx in {
+                    let temp = atomic.temp_path(heap, name, buffer.bytes(hx));
+                    borrow dir as &dd in {
+                        borrow temp as &tp in {
+                            let (en, unused) = atomic.replace(dd, name, buffer.bytes(tp), data);
+                            errno = en;
+                        }
+                    }
+                    buffer.drop(heap, temp);
+                }
+                buffer.drop(heap, hex);
+                dir_close(dir);
+            }
+        }
+    }
+    buffer.drop(heap, full);
+    return errno;
+}
+
 // ---- the step ------------------------------------------------------------
 
 // Everything between the checked flags and the answer. Answers the data of the answer (empty when no record was made), the program's
 // standard output and standard error (for --format text), and the errors.
-fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: &g Args, parsed: &p cli.Parsed, fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, records: &d Dir, root: &r [byte], name: &n [byte], input: &a [byte], in_list: &l1 [byte], out_list: &l2 [byte], deterministic: bool, allow_failure: bool, answer_output: bool, timeout: int, most: int, errs: fail.Errors) -> [heap, args, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, buffer.Buffer, buffer.Buffer, fail.Errors) {
+fn step[&h, &f, &x, &c, &d, &r, &n, &a, &l1, &l2, &v, &o](heap: &!h Heap, argv_packed: &v [byte], has_stdin: bool, stdout_file: &o [byte], fs: &f Fs(""), exec: &x Exec("/opt/cancho-flow/programs"), clock: &c Clock, records: &d Dir, root: &r [byte], name: &n [byte], input: &a [byte], in_list: &l1 [byte], out_list: &l2 [byte], deterministic: bool, allow_failure: bool, answer_output: bool, timeout: int, most: int, errs: fail.Errors) -> [heap, fs_read(""), dir_read, dir_write, file_read, file_write, exec("/opt/cancho-flow/programs"), clock, poll] (buffer.Buffer, buffer.Buffer, buffer.Buffer, fail.Errors) {
     var e = errs;
-    let table = flag_table();
     var payload = buffer.empty(heap, 1);
     var out_text = buffer.empty(heap, 1);
     var err_text = buffer.empty(heap, 1);
@@ -226,6 +266,7 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
     }
     // The declared outputs, as paths (hashed after).
     var out_json = buffer.empty(heap, 64);
+    var stdout_listed = len(stdout_file) == 0;
     k = 0;
     while k < files.elements(out_list) {
         let (declared, after) = files.declare(heap, fs, root, files.element(out_list, k), false, e);
@@ -237,6 +278,9 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
             }
             borrow rel as &rr in {
                 out_json = canon.str(heap, out_json, buffer.bytes(rr));
+                if bytes.equal(buffer.bytes(rr), stdout_file) {
+                    stdout_listed = true;
+                }
             }
         }
         buffer.drop(heap, rel);
@@ -244,6 +288,9 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
         k = k + 1;
     }
 
+    if !stdout_listed {
+        e = fail.simple(heap, e, "flow.stdout.undeclared", "--stdout-file names a file that --out does not list", "add the file to --out: the file the standard output is written to is an output of the step, hashed into its outcome", "file", stdout_file);
+    }
     var refused = false;
     borrow e as &er in {
         refused = fail.count(er) > 0;
@@ -262,16 +309,16 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
             inputs = canon.raw(heap, inputs, buffer.bytes(ph));
         }
         inputs = canon.lit(heap, inputs, "\"},\"args\":[");
-        var j = 2;
-        while j < cli.operand_count(parsed) {
-            if j > 2 {
+        var j = 0;
+        while j < argvp.count(argv_packed) {
+            if j > 0 {
                 inputs = buffer.push(heap, inputs, byte_of(','));
             }
-            inputs = canon.str(heap, inputs, cli.operand(args, parsed, j));
+            inputs = canon.str(heap, inputs, argvp.at(argv_packed, j));
             j = j + 1;
         }
         inputs = canon.lit(heap, inputs, "],\"stdin\":");
-        if cli.has(parsed, table, "stdin") {
+        if has_stdin {
             let hexin = atomic.sha256_hex(heap, input);
             borrow hexin as &hx in {
                 inputs = canon.stdin_entry(heap, inputs, len(input), buffer.bytes(hx));
@@ -322,9 +369,9 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
         full = buffer.push(heap, full, byte_of('/'));
         full = buffer.append(heap, full, name);
         var list = process.argv(heap, 128);
-        var q = 2;
-        while q < cli.operand_count(parsed) {
-            let (added, unused) = process.add(heap, list, cli.operand(args, parsed, q));
+        var q = 0;
+        while q < argvp.count(argv_packed) {
+            let (added, unused) = process.add(heap, list, argvp.at(argv_packed, q));
             list = added;
             q = q + 1;
         }
@@ -402,6 +449,15 @@ fn step[&h, &g, &p, &f, &x, &c, &d, &r, &n, &a, &l1, &l2](heap: &!h Heap, args: 
             w = json.put_int(heap, w, failure);
             e = fail.add(heap, e, w);
         } else {
+            // The standard output as a file (--stdout-file), before the outputs are hashed. A program that was killed leaves what it left.
+            if len(stdout_file) > 0 && killed == 0 {
+                borrow out_text as &sot0 in {
+                    let wrote = write_declared(heap, fs, root, stdout_file, buffer.bytes(sot0));
+                    if wrote != 0 {
+                        e = fail.io_error(heap, e, wrote, true, stdout_file);
+                    }
+                }
+            }
             // The outcome: what the program did, and the declared outputs now.
             var outs_json = buffer.empty(heap, 64);
             var missing_any = false;
@@ -713,10 +769,45 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
         e = rule_error(heap, e, "flow.files.too-many", "more declared files than a record may hold", "a record holds at most 64 declared files, inputs and outputs together", "most", config.most_files());
     }
 
+    if cli.has(parsed, table, "stdin") && cli.has(parsed, table, "stdin-file") {
+        e = fail.simple(heap, e, "flow.stdin.conflict", "--stdin and --stdin-file are both given", "a step has one standard input: this tool's own (--stdin) or a file's (--stdin-file)", "", "");
+    }
     var input = buffer.empty(heap, 1);
+    var stdout_rel = buffer.empty(heap, 1);
+    var has_stdin = cli.has(parsed, table, "stdin") || cli.has(parsed, table, "stdin-file");
     var refused = false;
     borrow e as &er in {
         refused = fail.count(er) > 0;
+    }
+    if !refused && cli.has(parsed, table, "stdin-file") {
+        borrow root as &rt0 in {
+            let (data, errno, big, rel, after) = files.read_declared(heap, fs, buffer.bytes(rt0), cli.text(args, parsed, table, "stdin-file"), most_in, e);
+            e = after;
+            buffer.drop(heap, input);
+            input = data;
+            buffer.drop(heap, rel);
+            if errno > 0 {
+                e = fail.io_error(heap, e, errno, false, cli.text(args, parsed, table, "stdin-file"));
+            } else if big {
+                e = fail.simple(heap, e, "limit.input-too-large", "the --stdin-file is larger than --max-stdin", "raise --max-stdin, up to 67108864", "", "");
+            }
+        }
+        borrow e as &er1 in {
+            refused = fail.count(er1) > 0;
+        }
+    }
+    if !refused && cli.has(parsed, table, "stdout-file") {
+        borrow root as &rt2 in {
+            let (declared, after) = files.declare(heap, fs, buffer.bytes(rt2), cli.text(args, parsed, table, "stdout-file"), false, e);
+            e = after;
+            let files.Declared { rel, hex, size, errno } = declared;
+            buffer.drop(heap, hex);
+            buffer.drop(heap, stdout_rel);
+            stdout_rel = rel;
+        }
+        borrow e as &er2 in {
+            refused = fail.count(er2) > 0;
+        }
     }
     if !refused && cli.has(parsed, table, "stdin") {
         buffer.drop(heap, input);
@@ -745,16 +836,27 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
                         DirOpened::Ok(opened) => {
                             var records = opened;
                             borrow records as &rd in {
-                                borrow input as &ip in {
-                                    let (pl, ot, et, e2) = step(heap, args, parsed, fs, exec, clock, rd, buffer.bytes(rt), name, buffer.bytes(ip), in_list, out_list, deterministic, allow_failure, answer_output, timeout, most, e);
-                                    buffer.drop(heap, payload);
-                                    buffer.drop(heap, out_text);
-                                    buffer.drop(heap, err_text);
-                                    payload = pl;
-                                    out_text = ot;
-                                    err_text = et;
-                                    e = e2;
+                                var packed = buffer.empty(heap, 64);
+                                var pk = 2;
+                                while pk < cli.operand_count(parsed) {
+                                    packed = argvp.add(heap, packed, cli.operand(args, parsed, pk));
+                                    pk = pk + 1;
                                 }
+                                borrow packed as &pkb in {
+                                    borrow stdout_rel as &sro in {
+                                        borrow input as &ip in {
+                                            let (pl, ot, et, e2) = step(heap, buffer.bytes(pkb), has_stdin, buffer.bytes(sro), fs, exec, clock, rd, buffer.bytes(rt), name, buffer.bytes(ip), in_list, out_list, deterministic, allow_failure, answer_output, timeout, most, e);
+                                            buffer.drop(heap, payload);
+                                            buffer.drop(heap, out_text);
+                                            buffer.drop(heap, err_text);
+                                            payload = pl;
+                                            out_text = ot;
+                                            err_text = et;
+                                            e = e2;
+                                        }
+                                    }
+                                }
+                                buffer.drop(heap, packed);
                             }
                             dir_close(records);
                         }
@@ -766,6 +868,7 @@ fn body[&h, &g, &p, &f, &x, &c, &i](heap: &!h Heap, args: &g Args, parsed: &p cl
     }
     buffer.drop(heap, root);
     buffer.drop(heap, input);
+    buffer.drop(heap, stdout_rel);
 
     var status = 0;
     borrow e as &er in {

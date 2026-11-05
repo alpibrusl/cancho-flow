@@ -47,6 +47,20 @@ MUTANTS = [
      "a changed program is not reported by check"),
     (READ, "same = !recorded_missing && bytes.equal(buffer.bytes(hx), buffer.bytes(rc));", "same = true;", ["G3", "G7"],
      "a changed declared file is not reported by check"),
+    (STEP, "if len(stdout_file) > 0 && killed == 0 {", "if len(stdout_file) > 0 {", ["G12"],
+     "a killed program's standard output is written to the file"),
+    (STEP, "    if !stdout_listed {", "    if false && !stdout_listed {", ["G12", "G3"],
+     "a standard-output file that --out does not list is accepted"),
+    (STEP, "write_declared(heap, fs, root, stdout_file, buffer.bytes(sot0));", "write_declared(heap, fs, root, stdout_file, \"\");", ["G12"],
+     "the file written is empty"),
+    (STEP, "cli.has(parsed, table, \"stdin\") || cli.has(parsed, table, \"stdin-file\");", "cli.has(parsed, table, \"stdin\") || false;", ["G12"],
+     "the standard input from a file is not recorded"),
+    (STEP, "if cli.has(parsed, table, \"stdin\") && cli.has(parsed, table, \"stdin-file\") {", "if false && cli.has(parsed, table, \"stdin\") && cli.has(parsed, table, \"stdin-file\") {", ["G3"],
+     "--stdin and --stdin-file together are accepted"),
+    (STEP, "} else if big {", "} else if false {", ["G12"],
+     "a standard-input file above --max-stdin is accepted"),
+    ("lib/flow/argvp.cho", "            seen = seen + 1;\n            from = i + 1;\n        }\n        i = i + 1;\n    }\n    return p[0..0];", "            seen = seen + 1;\n            from = i + 2;\n        }\n        i = i + 1;\n    }\n    return p[0..0];", ["G1", "G3", "G12", "G5"],
+     "a packed argument after the first starts one byte late"),
 ]
 
 

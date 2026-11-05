@@ -109,6 +109,7 @@
   "foreign_symbols": [],
   "pure": [
     "alphabet",
+    "at",
     "authority",
     "bad",
     "built",
@@ -121,6 +122,7 @@
     "code_name",
     "compare",
     "compiler",
+    "count",
     "count",
     "count",
     "count",
@@ -200,6 +202,7 @@
     "json_name",
     "kind_of",
     "lead_bits",
+    "leaf",
     "list",
     "listed",
     "longest",
@@ -220,6 +223,7 @@
     "ok",
     "operand_count",
     "output_token",
+    "parent_of",
     "parse_nat",
     "plain_byte",
     "plain_name",
@@ -263,5 +267,5 @@
   ],
   "folded_operators": 42,
   "folded_calls": 0,
-  "functions": 299
+  "functions": 308
 }
