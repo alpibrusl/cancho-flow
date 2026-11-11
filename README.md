@@ -20,7 +20,7 @@ $ flow-records check --root . records 805f9bb8…
 
 ```sh
 git clone https://github.com/alpibrusl/cancho                     # the compiler, at the commit cancho.toml names
-(cd ../cancho && git checkout de4e52fd81809e6400e2c8b2f485d0b75412449c && cargo build --release -p cancho)
+(cd ../cancho && git checkout 51524d206283a5fec6e15e26a1b8d2825971e08a && sh scripts/build-standalone.sh --out target/release --rev 51524d206283a5fec6e15e26a1b8d2825971e08a)   # the compiler written in cancho, from the committed seed: clang, no Rust
 export CANCHO=$PWD/../cancho/target/release/cancho PATH=$PWD/../cancho/target/release:$PATH
 cancho install                                                    # fetches the pinned cancho-tools contract into build/deps
 python3 scripts/flow_build.py --programs /opt/agent/programs --out build/flow-agent --bin flow

@@ -207,7 +207,7 @@ Mutants: **all killed, or each survivor explained** (cancho-ml's rule). No gate 
 6. **D15: no parallelism.** Whether independent steps may overlap, and how a record stays byte-identical if they do.
 7. **D7: a durable journal.** Whether `cancho-log` (append-only, crash-safe) is the backing for a run's ordered events, or a plain NDJSON file with `--log` like `ml`.
 8. **The name.** `cancho-flow` was proposed with `cancho-runbook` and `cancho-ledger` as alternatives (cancho-tools already has `run`).
-9. **Pinning.** *Settled by the build:* cancho-tools at `3399bd7a` and compiler `de4e52fd`, the pair `run` builds with. cancho-ml's pair (`8dab9176`, `0207556b`) was not tried.
+9. **Pinning.** *Settled by the build:* cancho-tools at `3399bd7a` and compiler `de4e52fd`, the pair `run` builds with. cancho-ml's pair (`8dab9176`, `0207556b`) was not tried. *Moved:* the compiler pin is now `51524d20` (cancho main), built by the compiler written in cancho from its committed seed (`scripts/build-standalone.sh`, no Rust); the build, `scripts/manifest.py --check` and the gates up to the mutants were run with it, the counts below being those of `de4e52fd`.
 10. **MCP.** Whether `flow-records` is listed on cancho-tools' MCP server, and whether `flow` is ever.
 
 ## 13. Results
