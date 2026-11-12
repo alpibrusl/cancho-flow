@@ -369,3 +369,42 @@ are choices; this run does not show that it is.
 **What this does not show:** one forecast, one seed, one size, one machine; a decision that looks more than one week ahead; the real economics of a pharmacy; a routing
 or charging model (U4).
 
+### U2c: the coupling from a stockout to a lapse, G3 (2026-11-12)
+
+*Same machine and conditions as before. Code: the refill series in `twinlib/core.py` (`refill_series`), `scripts/coupling_c.py`. The G3 margins (section 7a) were committed
+(`0428695`) before this code was written.*
+
+**The twin.** Each patient takes `n_items` distinct chronic items from the home pharmacy. A refill is due every 4 or 12 weeks from a random first week. It is not filled
+(a lapse, and the series ends) with a probability that adds a base (2 percent), 1 point per extra item, 0, 1.5 or 4 points by co-payment band, 0 to 3 points by age band, and
+**15 points when the home pharmacy was out of that item in the four weeks up to the due date**. On the `large` size: 442,014 refill events, 17,114 of which saw a stockout
+(3.9 percent) and 25,468 lapses.
+
+**G1, extended [measured]:** the series of every patient-item is recounted from the CSVs (chronic items only, one home pharmacy, a fixed interval, a start below the interval,
+no refill after a lapse, `stockout_seen` equal to what `dispensing.csv` says, counts equal to `truth.json`), and the coupling is found at its value and not found at zero, at
+4 standard deviations. **21 of 21 twin mutants are killed** (the 17 of U2a and four new: the coupling ignored, the window off by one, refills after a lapse, the wrong home
+pharmacy).
+
+**G3 [measured, passes]**, `stats test prop` of the lapse against "saw a stockout", as recorded `flow` steps:
+
+| | lapse proportion, saw a stockout minus did not | p | refills (saw / did not) |
+|---|---|---|---|
+| the coupling at 0.15 | +0.1443 | below the smallest double (reported as 0) | 17,114 / 424,900 |
+| the coupling set to 0 | -0.0032 | 0.052 | 19,061 / 446,872 |
+
+At its value the difference is 0.0057 below the parameter (bound 0.02, p < 1e-6); at zero it is -0.0032 (bound 0.02, p >= 1e-3). Both hold. The small shortfall from 0.15 is
+real in the sense that it is far outside the standard error (a few thousandths) and is not explained here; a candidate is that a series ends at a lapse, so the refills that
+are observed late in time come from patients who were less likely to lapse, but this was not tested. The zero-coupling p of 0.052 clears its bound of 1e-3 and is not
+comfortably far from 0.05; that is what a null difference looks like at this sample size.
+
+**G7 [measured, passes]:** four recorded steps (two twins, two tests) check clean, and a changed byte of `refills.csv` is detected.
+
+**Mutants of the analysis [measured]:** the control passes and 2 of 2 are killed: the coupling ignored by the twin (the difference falls to -0.0032), and the test grouped by the
+wrong column (+0.0025). **A third mutant, asking `stats` for the other success level, is not in the list because it is equivalent:** the fill proportion's difference is the
+lapse proportion's with the opposite sign, and the gate puts both on the lapse's sign, so the verdict is rightly the same.
+
+**A disclosure.** While checking the output format of `stats test prop` I ran it once on the twin's output and saw the estimate (-0.1443 for the other sign) before the gate
+existed. The margins had been committed before the coupling code was written, and nothing was changed after that look; the gate uses the same seed.
+
+**What this does not show:** that the 0.15 is realistic (it is a choice); that a model recovers the effect (that is U3); the reverse direction, patients' refills as the
+demand that pharmacies see (U5); one seed and one machine.
+
