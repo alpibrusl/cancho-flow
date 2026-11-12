@@ -417,3 +417,52 @@ existed. The margins had been committed before the coupling code was written, an
 **What this does not show:** that the 0.15 is realistic (it is a choice); that a model recovers the effect (that is U3); the reverse direction, patients' refills as the
 demand that pharmacies see (U5); one seed and one machine.
 
+### U3a: the lapse model, calibrated, and the effects recovered; G2, G4, G8 for B (2026-11-12)
+
+*Same machine and conditions as before (Linux x86-64, seed 20261112, the `large` size: 20,000 patients, 442,014 refill events). Code: `features_b.py`, `pred_join.py`,
+`apply_isotonic.py`, `scripts/pipeline_b.py`; the twin now also writes the true lapse probability of every refill to `truth/refill_hazard.csv`. The margins (section 7a) were
+committed (`d33b6cb`) before any of this was built.*
+
+**Setup.** A refill event is the unit; the label is a lapse; the model sees the number of chronic items, the co-payment and age band as integers, the interval and whether the
+home pharmacy was out of the item. Time split: fit on due weeks before 60 (320,834 events), calibrate on 60 to 77 (57,091), test from 78 (64,089). `ml fit --model boost`, `ml
+predict --proba`, `ml isotonic` on the calibration part, applied to the test part by `apply_isotonic.py` (a step function), `ml calibrate` and `stats test chisq` looking on. 25
+recorded `flow` steps.
+
+**G2 [measured, passes]**, `stats test chisq` of the lapse against each factor, in the twin as it is and in a control whose four lapse effects are zero:
+
+| factor | p in the twin | p in the control |
+|---|---|---|
+| number of items | 4.4e-236 | 0.120 |
+| co-payment band | 0 (underflow) | 0.074 |
+| age band | 7.9e-108 | 0.270 |
+| saw a stockout | 0 (underflow) | 0.392 |
+
+**G4 [measured, passes]**, log loss on the test weeks: constant 0.21003, boost uncalibrated 0.20194, **boost calibrated 0.20192**, the true probabilities 0.20182. The calibrated boost is
+0.9614 of the constant model's (limit 0.98) and **1.0005 of the true probabilities'** (lower limit 0.99): it recovers the twin's hazard to within five hundredths of a percent of
+log loss, and does not beat it.
+
+**G8 [measured, passes]**, deciles of the calibrated probability (predicted/observed): 0.021/0.020, 0.030/0.033, 0.031/0.034, 0.039/0.042, 0.043/0.042, 0.049/0.048, 0.055/0.057,
+0.061/0.061, 0.070/0.075, 0.128/0.127, at least 6,408 rows each. The largest deviation is 0.10 of its bound. `ml calibrate` with its own defaults says `ok` for both.
+
+**A finding that the numbers make plain.** The uncalibrated probabilities were already calibrated (largest deviation 0.09 of the bound, against 0.10 after the isotonic step; the
+overall ratio 1.008 before and 1.023 after). A boost trained on log loss over 320,000 rows has little left for a calibration step to fix, and the step did not help here. It stays in the
+pipeline because G8 judges the calibrated probability, and because on a model that is not trained on log loss it would matter; this run does not show that.
+
+**G7 [measured, passes]:** the 25 recorded steps check clean, and a changed byte of `events_main.csv` is detected.
+
+**Mutants [measured]:** the twin's gate now has **22 mutants, all killed** (the 21 before and the true-hazard file with the copay term omitted). The pipeline has **5 of 5 killed**: the
+label put into a feature (G4: log loss 0, below the floor); the fit including later weeks (G4's split check: 89,026 rows shared); the stockout tested against the wrong column (G2);
+the coupling ignored by the twin (G2: p = 0.052 for the stockout); and the isotonic fit in the wrong direction. Two notes on that run:
+* The first run reported two survivors that were faults of the harness, not of the gates: a mutation of mine that left a syntax error (so the pipeline stopped before G4), and one aimed
+  at G8. The second is instructive: **G8 cannot see a forecast that says nothing**, because a flat forecast at the base rate is perfectly calibrated in every decile. The inverted fit is
+  flat, G8 passes it, and G4 refuses it (log loss 0.20978, not at most 0.98 times 0.21003). The mutant is now aimed at G4, with that reason in the code.
+* The two corrected mutants were rerun on their own, not as part of a second full run of the five.
+
+**Disclosures.** (1) While exploring `ml`'s output I saw test-set metrics (a boost log loss of 0.2020 and an AUC of 0.645 on the test weeks) for a model that still used `fills_before`. `ml`
+itself reported that feature out of the training range on 75 percent of the test rows (it grows with time), and I dropped it for that reason, which is a judgement made after seeing
+test metrics and not before; the margins had been committed first and were not touched, and the final numbers are of the model without it. (2) `ml fit --model constant` takes no
+`--positive`, and its summary gives a probability (the training rate) only because the label is 0 or 1, which is what the baseline uses here.
+
+**What this does not show:** that a model can find effects it was not built to find (the twin's hazard is additive and every driver is in the model's inputs, so recovering it is the easy
+case); other platforms or seeds; the outreach decision (U3b); real adherence data.
+

@@ -163,8 +163,9 @@ def _x(*parts):
 
 
 MUTANTS = [
-    ("label-in-a-feature", "features_b.py", 'p["copay_band"]), p["copay_band"],', _x('1 - int(r["fil', 'led"]), p["copay_band"],'), "G4"),
-    ("calibration-inverted", "scripts/pipeline_b.py", _x('"--x-col", "p", "--y-col", "lapsed", "iso', 'tonic"'), '"--x-col", "p", "--y-col", "lapsed", "--decreasing", "isotonic"', "G8"),
+    ("label-in-a-feature", "features_b.py", _x('COPAY.index(p["copay_band"]), p', '["copay_band"],'), '1 - int(r["filled"]), p["copay_band"],', "G4"),
+    # G8 cannot see this one, by construction: a fit with the wrong direction is flat, a flat forecast at the base rate is perfectly calibrated, and G4 is what refuses a forecast that says nothing.
+    ("calibration-inverted", "scripts/pipeline_b.py", _x('"--x-col", "p", "--y-col", "lapsed", "iso', 'tonic"'), '"--x-col", "p", "--y-col", "lapsed", "--decreasing", "isotonic"', "G4"),
     ("later-weeks-in-the-fit", "scripts/pipeline_b.py", _x('"due_week:int < %d" % FIT_', 'BEFORE'), _x('"due_week:int < %d" % (FIT_', 'BEFORE + 30)'), "G4"),
     ("stockout-tested-against-the-wrong-column", "scripts/pipeline_b.py", _x('FACTORS = ("n_items", "copay_band", "age_band", "stock', 'out_seen")'), 'FACTORS = ("n_items", "copay_band", "age_band", "interval_weeks")', "G2"),
     ("coupling-ignored-by-the-twin", "twinlib/core.py", 'p["lapse_stockout_ppm"] * seen', "0 * seen", "G2"),
