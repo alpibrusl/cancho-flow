@@ -82,7 +82,7 @@ def simulate(p, n, items, pharmacies, root):
             ordered = -(-want // pack) * pack if want else 0
             c[1] = ordered
             disp.append((phid, itid, week, stock_start, received, written_off, sold, int(demand > stock_start), stock_end, ordered))
-            truth.append((phid, itid, week, demand))
+            truth.append((phid, itid, week, demand, mean_milli(b, scale, seas)))
             sold_out += demand > stock_start
             wasted += written_off
             sold_total += sold
@@ -149,7 +149,7 @@ def generate(world, seed, size, tables=("core", "dispensing")):
     if "dispensing" in tables:
         disp, tdem, sim = simulate(p, n, items, pharmacies, root)
         files["dispensing.csv"] = _csv(("pharmacy", "item", "week", "stock_start", "received", "written_off", "units", "stockout", "stock_end", "ordered"), disp)
-        files["truth/demand.csv"] = _csv(("pharmacy", "item", "week", "demand"), tdem)  # the analysis never reads this file; the gates do
+        files["truth/demand.csv"] = _csv(("pharmacy", "item", "week", "demand", "true_mean_milli"), tdem)  # the analysis never reads this file; the gates do
         truth["counts"]["weeks"] = n["weeks"]
         truth["realised"].update(sim)
         truth["realised"]["items_by_group"] = {g: sum(1 for it in items if it[6] == g) for g in GROUPS}

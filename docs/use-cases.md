@@ -258,3 +258,64 @@ entities only (items, pharmacies, patients) and `truth.json`; the three use case
 * **What this does not show:** other platforms, other Python versions (the twin uses no floating-point library function, which is why it should
   hold, but it is a reason, not a measurement), or any of the three use cases' own tables.
 
+### U2a: C's twin tables and the forecast, G2, G4 and G7 (2026-11-12)
+
+*Same machine and conditions as U1 (Linux x86-64, one run each, seed 20261112, the `small` size: 8 pharmacies, 60 items, 104 weeks, 49,920 rows of
+`dispensing.csv`). Code: `twinlib/core.py` (the simulation), `features.py`, `scripts/pipeline_c.py`. The margins are those of section 7a, committed
+(`e1b12b8`) before any of these numbers existed.*
+
+**The twin.** Weekly demand is Poisson at a mean that is the item's base rate, the pharmacy's scale and a seasonal triangle by therapeutic group; the
+pharmacy sells what it has (the demand cut at the stock on hand, FEFO, lots that expire), and orders up to 1.5 times the mean of its last four weeks of
+*sales* (a policy that is biased by its own stockouts, on purpose). `dispensing.csv` is what a pharmacy sees; `truth/demand.csv` (true demand and true
+mean) is what only the gates read. On this run 653 of 49,920 item-weeks were stockouts (1.3 percent) and 2,076 of about 290,000 units were written off.
+Both rates are consequences of stylised parameters, not claims about real pharmacies.
+
+**G1, extended [measured]:** the stock identities (`stock_end = stock_start - units`; this week's stock is last week's plus what arrived minus what
+expired; what arrives is what was ordered a week before; orders are whole packs; a stockout is exactly demand above stock), the seasonal shape
+(respiratory demand at its peak week against half a year away, within 20 percent of the parameters' ratio) and the Poisson moments. **17 of 17 twin
+mutants are killed** (11 of U1 and six new: the Poisson mean ignored, the season ignored, no censoring, a wrong stockout flag, no pack rounding, expiry
+lost); see the log of this run in the pull request.
+
+**G2 [measured, passes]:**
+
+| | difference, winter minus summer | p | ratio of means |
+|---|---|---|---|
+| respiratory items | +5.62 units a week | 4.2e-137 | 2.653 (the parameters give 2.688 without stockouts, 1.3 percent apart) |
+| chronic items (no effect in the twin) | -0.02 | 0.856 | |
+| respiratory items, seasonal amplitude set to zero | +0.02 | 0.901 | |
+
+The bounds were p < 1e-6 when present, p >= 1e-3 when absent, and a ratio within 25 percent: all three hold.
+
+**G4 [measured, passes]**, on the 12 held-out weeks (92 to 103, 5,760 rows), mean absolute error in units:
+
+| | MAE | against the best baseline (last week, 2.323) | against the noise floor (1.678) |
+|---|---|---|---|
+| training mean | 5.163 | | |
+| last week's units | 2.323 | | |
+| `ml` boost (100 rounds, depth 4) | 1.829 | 0.787 (limit 0.90) | 1.090 (lower limit 0.90) |
+| `ml` forest (100 trees, depth 8) | 1.826 | 0.786 | 1.088 |
+
+Both models sit about 9 percent above the floor of a forecaster that knows the true mean (the floor is for the uncensored mean; sales are censored by
+stock, so it is approximate), and not below it.
+
+**G7 [measured, passes]:** 19 recorded `flow` steps (the twin, the features, the splits, the fits and evaluations, the statistical tests, and the
+control world), `flow-records check --recursive` clean; changing one byte of a recorded output makes it fail.
+
+**Mutants of the pipeline [measured]:** the control passes and **4 of 4 are killed**: the target leaked into a feature (boost MAE 0.134, below the
+floor); the winter and summer labels swapped (G2); the held-out weeks left in the training file (G4's split-hygiene check); the lags and item columns
+dropped from the model (MAE 5.167, not under 0.90 times 2.323).
+
+**What the mutants taught, in order.**
+* **A survivor, and a gate strengthened.** Training on the held-out weeks changed the error by almost nothing (1.804 against 1.829): this model cannot
+  memorise 48,000 rows, so the noise-floor check does not see mild leakage. The gate now also checks the split directly (every training week before every
+  held-out week, no shared row), and that mutant is killed by it. The margins were not touched.
+* **A mutant dropped, for a reason.** Stale lags (eight to twelve weeks old) did not fail G4, and should not: they still carry each series' level, and
+  the model beats the (equally stale) last-week baseline. That is not a faulty forecast, so the mutant is not in the list.
+* **`ml` linear is refused** on this file as collinear (`ml.fit.collinear`: the one-hot columns of the groups and the intercept); it is not used here and
+  is not a baseline. The baselines are the training mean and last week.
+* **`table` could not build the lags** (section 4.1, corrected there): `features.py` does.
+
+**What this does not show:** one seed, one size, one machine; real pharmacies; a model better than the two baselines at a horizon of more than one
+week; anything about C's decision (U2b) or the coupling (U2c). That the forecast beats last week's units by 21 percent says what it does on a twin
+whose seasonality is a clean triangle, not what it would do on real sales.
+
