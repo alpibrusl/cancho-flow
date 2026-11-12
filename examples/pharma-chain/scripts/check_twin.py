@@ -32,7 +32,7 @@ HERE = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 from twinlib.prng import SplitMix64  # noqa: E402  (the gate's own random numbers: the fuzz, not the twin under test)
 
-FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv")
+FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv", "truth/refill_hazard.csv")
 CORE_FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json")
 
 
@@ -197,6 +197,18 @@ def check(tree, fast=False):
             per_patient[pid] = per_patient.get(pid, 0) + 1
         if any(c > int(pat[pid]["n_items"]) for pid, c in per_patient.items()):
             rbad["items"] = "a patient takes more items than n_items"
+        haz = table(a["truth/refill_hazard.csv"])
+        P1 = {k: v["value"] for k, v in world["params"].items()}
+        if len(haz) != len(ref) or any((h["patient"], h["item"], h["due_week"]) != (x["patient"], x["item"], x["due_week"]) for h, x in zip(haz, ref)):
+            rbad["hazard-rows"] = "truth/refill_hazard.csv does not list the refills of refills.csv in order"
+        else:
+            for h, x in zip(haz, ref):
+                pr = pat[x["patient"]]
+                want_p = min(1_000_000, P1["lapse_base_ppm"] + P1["lapse_per_extra_item_ppm"] * (int(pr["n_items"]) - 1) + P1["lapse_copay_ppm"][("low", "mid", "high").index(pr["copay_band"])]
+                             + P1["lapse_age_ppm"][("18-39", "40-54", "55-64", "65-74", "75+").index(pr["age_band"])] + P1["lapse_stockout_ppm"] * int(x["stockout_seen"]))
+                if int(h["true_lapse_ppm"]) != want_p:
+                    rbad["hazard"] = "%s %s week %s: the file says %s ppm, the parameters give %d" % (x["patient"], x["item"], x["due_week"], h["true_lapse_ppm"], want_p)
+                    break
         tr = json.loads(a["truth.json"])["realised"]
         if tr.get("refill_events") != len(ref) or tr.get("refill_lapses") != sum(1 for x in ref if x["filled"] == "0"):
             rbad["truth"] = "truth.json counts %s events and %s lapses, refills.csv holds %d and %d" % (tr.get("refill_events"), tr.get("refill_lapses"), len(ref), sum(1 for x in ref if x["filled"] == "0"))
@@ -371,6 +383,7 @@ MUTANTS = [
     ("window-off-by-one", "twinlib/core.py", "range(max(0, w - window + 1), w + 1)", "range(max(0, w - window + 1), w)", "refills"),
     ("refills-after-a-lapse", "twinlib/core.py", "                if lapse:\n                    lapses += 1\n                    break\n", "                if lapse:\n                    lapses += 1\n", "refills"),
     ("wrong-home-pharmacy", "twinlib/core.py", "rows.append((pid, it, home, w, interval, seen, int(not lapse)))", 'rows.append((pid, it, "P001", w, interval, seen, int(not lapse)))', "refills"),
+    ("hazard-file-omits-copay", "twinlib/core.py", "                hazards.append((pid, it, w, chance))", "                hazards.append((pid, it, w, chance - p[\"lapse_copay_ppm\"][COPAY_BANDS.index(copay)]))", "refills"),
     ("wrong-generator-constant", "twinlib/prng.py", "0x9E3779B97F4A7C15", "0x9E3779B97F4A7C16", "known-answer"),
 ]
 

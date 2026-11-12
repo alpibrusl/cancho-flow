@@ -59,13 +59,15 @@ class Flow:
             shutil.copy(HERE / f, self.root / f)
         self.steps = 0
 
-    def step(self, ins, outs, argv, stdout_file=None, stdin_file=None):
+    def step(self, ins, outs, argv, stdout_file=None, stdin_file=None, max_output=None):
         outs = list(outs) + ([stdout_file] if stdout_file else [])
         cmd = [self.flow, "step", "--root", ".", "--record", "rec"] + (["--in", ",".join(ins)] if ins else []) + (["--out", ",".join(outs)] if outs else [])
         if stdout_file:
             cmd += ["--stdout-file", stdout_file]
         if stdin_file:
             cmd += ["--stdin-file", stdin_file]
+        if max_output:
+            cmd += ["--max-output", str(max_output)]
         r = subprocess.run(cmd + ["--"] + argv, cwd=self.root, capture_output=True, text=True, timeout=900)
         try:
             doc = json.loads(r.stdout)
