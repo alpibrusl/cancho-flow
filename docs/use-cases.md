@@ -1,175 +1,220 @@
-# Three analytics and ML use cases on the cancho tools, each with a digital twin
+# One pharma supply chain, three analytics and ML use cases, one digital twin
 
-**Status: design, written before any code.** Nothing here is a result. Every claim is **[measured]** (with where), **[read]** (with
-the file or command it was read from), a **[choice]**, or **[open]**. A claim found false is corrected here, in place.
+**Status: design, written before any code (version 2: the three systems are now one connected world).** Nothing here is a result.
+Every claim is **[measured]** (with where), **[read]** (with the file or command it was read from), a **[choice]**, or **[open]**. A
+claim found false is corrected here, in place. Nothing here is medical or regulatory advice, and no real patient data is used or needed.
 
 ## 1. What this is for
 
-The tools (`table`, `stats`, `ml`, `solve`, `opt`, `flow` and `plot`) are each checked alone. No example uses them *together*, on a question whose
-answer someone would act on. This document designs three, end to end, and for each a **twin**: a program that generates realistic
-fake data from a stated model of the system, so that the example runs anywhere, in CI, with no data to download and with a known truth to
-check the analysis against.
+The tools (`table`, `stats`, `ml`, `solve`, `opt`, `flow`, and later `plot`) are each checked alone. No example uses them *together* on a
+question whose answer someone would act on. This document designs one: a **pharmaceutical distribution chain**, seen from three places,
+with a **digital twin** that generates realistic fake data for all three from one stated model, so the example runs anywhere, in CI,
+with a known truth to check every analysis against.
 
-| | system | question the example answers | tools |
+```
+ patients ──refill demand──▶ PHARMACIES ──orders──▶ DEPOT ──EV reefer trucks──▶ PHARMACIES
+     ▲                           │  stockouts, expiry         │  late or warm deliveries
+     └──────── lapse (stops refilling) ◀──────────────────────┴───────────────────────┘
+```
+
+| | use case | question the example answers | tools |
 |---|---|---|---|
-| **A** | an EV charging depot | how much energy will the depot be asked for tomorrow, hour by hour, and how do we charge the cars within the power cap | table, stats, ml, solve, opt, plot, flow |
-| **B** | a subscription business | who is likely to leave, is the model's probability honest, and which retention offers do we make for a fixed budget | table, stats, ml, solve, plot, flow |
-| **C** | a retail chain | how many units of each product will each store sell next week, and what do we order | table, stats, ml, solve, opt, plot, flow |
+| **C** | pharmacy replenishment | how many units of each medicine will each pharmacy dispense next week, and what do we order given expiry dates, cold-chain items and a shelf-space cap | table, stats, ml, solve, opt, flow |
+| **A** | cold-chain delivery with electric trucks | which truck serves which pharmacies, will its battery last given the refrigeration load, and how do we charge the fleet overnight under the depot's power cap | table, stats, ml, solve, opt, flow |
+| **B** | refill adherence ("churn") | which chronic patients will stop refilling, is the model's probability honest, and which patients get a pharmacist call or a home delivery for a fixed budget | table, stats, ml, solve, flow |
 
-Each is non-trivial in the same way: a time or group structure that a random split would get wrong, a prediction that feeds a decision,
-and a decision that is an optimisation with a checkable answer.
+**The three are coupled, and that is the point [choice].** A stockout at a pharmacy (C) raises a patient's chance of lapsing (B); a late
+or warm delivery (A) causes the stockout and the discarded stock; the patients' refills are the demand that C forecasts and A
+delivers. Each use case is non-trivial alone (time and group structure a random split would get wrong, a prediction that feeds a
+decision, a decision that is an optimisation with a checkable answer); together, a number in one is an input to another, and the twin
+knows by how much.
 
 ## 2. The twin
 
-**A twin is a generative simulator of one system, not a live mirror of it [choice].** It is a function `(world, seed, size) -> files`. The
-`world` is a JSON file of named parameters (rates, effects, noise levels); the twin writes CSV files that look like what the real system
-would export.
+**A twin is a generative simulator of the whole chain, not a live mirror of a real one [choice].** It is a function
+`(world, seed, size) -> files`. The `world` is a JSON file of named parameters; the twin writes the CSV files each use case reads, and
+`truth.json`.
 
-Properties, each a gate (section 6) before it is code:
+Properties, each a gate (section 7) before it is code:
 
-* **T1 deterministic [choice].** The same world, seed and size give the same bytes, on every platform. The twin brings its own
-  generator (a 64-bit splitmix, and `math` for the rest) instead of `random`, whose stream is a property of the Python version, not of
-  this repository.
-* **T2 the truth is a file [choice].** The twin also writes `truth.json`: the parameters that generated the data and the quantities the
-  analysis should recover (an effect size, a noise floor, the best plan's cost). The analysis never reads it; the gates do.
-* **T3 realistic where it matters [choice].** The marginals and the dependence the analysis uses are set from real data where a real
-  dataset is reachable (section 3), and from stated stylised facts where it is not. The twin says which, per parameter, in `world.json`.
-* **T4 sized by a flag [choice].** `--size small` runs in seconds for CI; `--size large` is for a measured run on one machine.
-* **T5 stdlib only [choice].** Python 3 and nothing to install, like the repositories' scripts.
+* **T1 deterministic [choice].** The same world, seed and size give the same bytes, on every platform. The twin brings its own generator
+  (a 64-bit splitmix, and `math` for the rest), not `random`, whose stream is a property of the Python version.
+* **T2 the truth is a file [choice].** `truth.json` holds the parameters that generated the data and the quantities an analysis should
+  recover (an effect, a noise floor, the best plan's cost). The analysis never reads it; the gates do.
+* **T3 realistic where it matters [choice].** Each parameter in `world.json` says whether it is a **stylised fact (choice)**, **read** from
+  a named public source, or **fitted** to a file. Today none is fitted (section 3).
+* **T4 coupled, with the coupling switchable [choice].** Every cross-use-case effect (stockout to lapse, late delivery to stockout, forecast
+  error to expiry write-off) has a coefficient that can be set to zero, so a gate can show the effect is found when present and not
+  found when absent.
+* **T5 sized by a flag [choice].** `--size small` runs in seconds for CI; `--size large` is for a measured run on one machine.
+* **T6 stdlib only [choice].** Python 3 and nothing to install, like the repositories' scripts.
+* **T7 synthetic people only [choice].** Patients are rows of generated numbers. The twin has no input that is a real person's data.
 
 ## 3. Realistic data: what is reachable
 
-*Measured in the session that wrote this (2026-11-11, through the agent proxy):*
+*Measured in the session that wrote this (2026-11-11, through the agent proxy):* the IBM sample file `Telco-Customer-Churn.csv` on
+`raw.githubusercontent.com` answered HTTP 200; `archive.ics.uci.edu` and `ev.caltech.edu` were refused (403). No pharmacy, drug-sales,
+adherence or cold-chain dataset was looked for yet. So:
 
-| source | result |
-|---|---|
-| `raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv` | HTTP 200 |
-| `archive.ics.uci.edu` (Online Retail) | proxy refused the tunnel, 403 |
-| `ev.caltech.edu` (ACN-Data) | proxy refused the tunnel, 403 |
+* **All three twins start from stylised facts, marked as choices.** Examples of what they will be: refill intervals of 30 or 90 days with
+  a spread; a share of items that need 2 to 8 degrees Celsius **[choice]** (the usual refrigerated range; **[open]** check against the
+  distribution guidance a real operator follows before the README says anything about compliance); shelf lives of months to years; winter
+  peaks for respiratory medicines.
+* **[open]** a public dataset for each of: pharmacy sales by item and day, patient refill histories (claims-style), vehicle energy per
+  kilometre with a refrigeration unit. Each is a file the maintainer can place in a directory; the calibration step (section 5, `opt`)
+  runs on any file with the twin's columns, so a real file moves a parameter from *choice* to *fitted* without changing the code.
+* **The Telco file** is a churn sample from another industry. It is **not** used to calibrate the pharma twin. **[open]** whether to use it
+  once, to run the churn half of the pipeline on a real file as a smoke test; its licence is unread, so nothing derived from it is
+  published until it is.
 
-So only B has a real dataset in reach. Consequences:
+## 4. The three use cases
 
-* **B:** the twin is calibrated to the Telco file: marginals of tenure, contract, charges and services, and the churn rate by group,
-  read by `table` and `stats` themselves (the first use of the tools on a real file). The file is **fetched by a script and checked
-  against a pinned SHA-256, never committed** [choice]. **[open]** its licence; until read, nothing derived from it is published.
-* **A and C:** the twin's parameters are **stylised facts, marked as choices**, not fitted. **[open]** a reachable public dataset for each;
-  a candidate is a dataset the maintainer can place in a directory, and the calibration step (section 5, `opt`) is written so that it runs on
-  any file with the twin's columns.
+### 4.1 C: pharmacy replenishment under expiry and cold chain
 
-The IBM file is itself a published sample dataset, not a log of a real company. The example must say so.
+*What makes it pharma.*
+* **Expiry and FEFO.** Stock is in lots with an expiry date; the pharmacy dispenses first-expiry-first-out; stock that expires is a
+  write-off. Over-ordering costs money that a retail example for biscuits would not lose so fast.
+* **Cold-chain items** have a smaller shelf-space cap and a temperature constraint on delivery (A).
+* **Two kinds of demand.** Chronic refills are predictable from patients' due dates (B); acute demand (a season's infections) is not.
+* **Asymmetric stockout cost.** A missing critical medicine costs more than a missing vitamin; the cost enters the objective and a
+  service-level target.
+* **Substitution.** A stocked-out brand can be replaced by a generic; the twin has a substitution rate, so a stockout does not always
+  lose the sale **[choice]**; the demand the data records is therefore censored in a more complicated way than in retail.
+* **Controlled items** have a per-order cap **[choice]**.
 
-## 4. The three systems
-
-### 4.1 A: the EV charging depot
-
-*Twin.* Vehicles arrive by a Poisson process whose rate has an hour-of-day and a day-of-week shape and a temperature effect; each session has
-a dwell time and an energy need (state of charge on arrival, battery size, a maximum power per vehicle). Files: `sessions.csv`
-(vehicle, arrive, depart, kwh_needed, max_kw), `weather.csv` (hour, temperature), `tariff.csv` (hour, price).
-
-*Pipeline.*
-1. `table` aggregates sessions to hourly demand, joins weather and builds lag features (`--query` SQL, one `flow step` each).
-2. `stats describe`, `corr` and `test` check what the twin says is there: the temperature effect, the weekday effect.
-3. `ml cv --split-by time:hour` then `ml fit --model boost` (and `linear`, `constant` as baselines) forecast the next day's demand.
-4. `solve`: given the forecast sessions (or the day's real ones), a MIP chooses charging power per session and hour under a site
-   power cap and each vehicle's deadline, minimising cost at the tariff.
-5. `opt minimize`: calibrates the twin's parameters to a file by matching summary statistics (Nelder-Mead; BFGS where there is a gradient).
-6. `flow`: every step above is a recorded step; the plan is a `flow run` plan.
-
-### 4.2 B: churn and retention
-
-*Twin.* Customers with tenure, contract type, monthly charges, services, support tickets; a churn hazard that is logistic in those, with
-a contract effect and a charge effect set from the Telco file. Files: `customers.csv`, `tickets.csv`.
+*Twin files.* `pharmacies.csv`, `items.csv` (shelf life, cold chain, criticality, pack size), `dispensing.csv` (pharmacy, item, day,
+units), `stock.csv` (pharmacy, item, day, lot, expiry, units), `orders.csv`.
 
 *Pipeline.*
-1. `table` joins and aggregates (tickets per customer, tenure bands).
-2. `stats test chisq` and `prop` (churn by contract, with `--correct holm`), `t2` / `mannwhitney` (tenure of churners), with intervals.
-3. `ml cv --stratify`, `ml fit --model logistic|forest|boost`, `ml eval`, `ml importance`; `ml calibrate` / `ml isotonic` and a check that
-   a predicted 30% is a churn rate of about 30% in the held-out rows.
-4. `solve`: a knapsack MIP picks which customers get which offer, maximising expected retained value (calibrated probability times
-   value times an uplift the twin knows) under a budget.
-5. `flow`: as in A.
+1. `table` builds the weekly panel, joins items and lots, and computes lags and days-to-expiry (SQL, one `flow step` each).
+2. `stats`: `describe` and `corr` (demand against temperature and season), `ks` / `mannwhitney` (a respiratory item in winter against
+   summer), the share of cells censored by stockout per item.
+3. `ml cv --split-by time:week`, then `ml fit --model boost` (baselines: `constant`, last week). The refill share of demand from B is a
+   feature.
+4. `solve`: a replenishment MIP per pharmacy: order quantity per item (integer packs), shelf-space and cold-space caps, expected write-off
+   from the lots' expiry dates, a service-level constraint from the forecast's held-out error, the controlled-item cap.
+5. `opt minimize`: calibrates the substitution and elasticity parameters of the twin to a file.
+6. `flow`: every step recorded.
 
-### 4.3 C: retail demand and replenishment
+### 4.2 A: cold-chain delivery with electric reefer trucks
 
-*Twin.* SKUs by stores by days: a base rate per SKU and store, weekly and yearly seasonality, a promotion effect, a price elasticity, and
-**censoring** (a day with a stockout records the stock, not the demand). Files: `sales.csv`, `prices.csv`, `promos.csv`, `stock.csv`.
+*What makes it pharma.*
+* **A temperature band on the whole trip.** The refrigeration unit draws power from the traction battery, more when it is hot outside and
+  while doors are open at a stop; so a route's energy is *driving + refrigeration*, and a cold item raises it **[choice]**.
+* **Time windows** at pharmacies, and a deadline (a pharmacy opens at 08:00 and must have the delivery before it).
+* **A warm delivery is a loss** (the batch is discarded) and shows in C's write-off; a **late** one shows in C's stockouts.
+* **The depot has a power cap** shared by overnight charging and the refrigerated warehouse.
+
+*Twin files.* `trucks.csv` (battery kWh, refrigeration kW, cold capacity), `routes.csv` (day, truck, ordered stops, distance, time
+windows, outside temperature), `telemetry.csv` (route, stop, kWh used, cabin temperature, door-open minutes), `depot.csv` (hourly cap and
+tariff).
 
 *Pipeline.*
-1. `table` builds the weekly panel and the lag, price and promo features.
-2. `stats corr` (price against units), `ks` / `mannwhitney` (promo against not), the censoring rate by SKU.
-3. `ml cv --split-by time:week`, `ml fit --model boost` for the weekly forecast; the baseline is last week's value and `constant`.
-4. `solve`: replenishment MIP (order quantity per SKU and store, integer pack sizes, a shelf-space cap, a service-level target
-   from the forecast's held-out error).
-5. `opt minimize`: calibrates the elasticity to a file.
+1. `table` builds one row per route and per stop, joined to weather and to the orders that C produced.
+2. `stats`: the refrigeration effect on energy (`corr`, a `t2` of hot against mild days), door-open time against temperature excursions
+   (`test chisq` or `prop` with `--correct holm`).
+3. `ml cv --split-by time:day`, `ml fit --model boost|linear`: (i) a regression for a route's energy, with a baseline that is distance
+   alone; (ii) a classification for the risk of a temperature excursion, with `ml calibrate`.
+4. `solve`: (i) assign the day's deliveries to trucks so that each truck's predicted energy plus a reserve fits its battery and every time
+   window holds, and (ii) the overnight charging plan under the depot cap at the tariff, so that each truck is full by its departure.
+   Stop order within a truck is part of the model only up to a size `solve` is shown to handle (section 9, open 5); beyond it the twin
+   gives the order as data and the example says so.
+5. `opt minimize`: calibrates the twin's refrigeration and driving coefficients to a telemetry file.
 6. `flow`.
 
-## 4.4 Figures: `plot`
+### 4.3 B: refill adherence
 
-`plot` ([cancho-plot](https://github.com/alpibrusl/cancho-plot)) reads CSV on standard input and writes SVG or text (`--term svg`,
-`--term dumb`); it can also read the JSON that `stats` and `ml` print (`--json PATH`). *Read from its README, 2026-11-12:* lines and points,
-bands, a diagonal, bars, error bars, histograms, box plots, heatmaps, `--curve roc|ecdf|qq`, a log y axis, `--by`. *Measured 2026-11-12:* it
-builds with the compiler at `51524d2` (cancho main) and writes a text chart from CSV on a Linux x86-64 machine; nothing more was run.
+*What makes it pharma.* "Churn" is **lapse**: a chronic patient who does not refill within a grace period after the due date. It matters
+clinically and commercially, and the interventions are different from a telecom's discount: a pharmacist's call, a reminder, a switch
+to a 90-day supply, a home delivery (which loads A).
 
-Each example ends in figures, each a `flow step` whose output is hashed like any other (`plot` has no clock and no random, by its `CLAUDE.md`):
+*Twin.* Patients with an age band, a regimen (number of chronic items, refill interval), a co-payment, a home pharmacy, and a refill history
+generated by a hazard model: a base lapse rate, an effect of regimen complexity and co-payment, an effect of **a stockout of the
+patient's item at the pharmacy in the last 30 days** (from C) and of **a late delivery** (from A). Files: `patients.csv`, `refills.csv`
+(patient, item, due, filled), `contacts.csv` (outreach already made).
 
-| | figures |
-|---|---|
-| **A** | hourly demand, forecast against actual with a band (`--band`); the forecast error by hour (`--with bars`); the charging plan's load against the power cap (`--hline`) |
-| **B** | the calibration curve with the diagonal (`--diag`); an ROC curve (`--curve roc`); the churn rate by contract with error bars (`--yerr`); the importance of each feature (`--with hbars`) |
-| **C** | units against price per SKU (`--by`); the forecast error histogram (`--with hist`); a store-by-week heatmap of stockouts (`--with heat --z`) |
+*Pipeline.*
+1. `table` builds one row per patient and due date: days since the last fill, gaps so far, stockouts seen, contacts made.
+2. `stats`: `test prop` and `chisq` (lapse by regimen size, by co-payment band, by a stockout seen; `--correct holm`), `mannwhitney` (gap
+   lengths of lapsers against others), each with an interval.
+3. `ml cv --split-by time:due` (a patient's later due dates must not train a model that scores an earlier one), `ml fit --model
+   logistic|forest|boost`, `ml eval`, `ml importance`; `ml calibrate` or `ml isotonic`, and a check that a predicted 30 percent is a lapse
+   rate of about 30 percent in the held-out rows.
+4. `solve`: choose patients and an intervention each (call, reminder, 90-day switch, home delivery) maximising expected adherent days (the
+   calibrated probability times an uplift the twin knows) under the pharmacists' hours, a budget and the delivery slots A has left.
+5. `flow`.
 
-The text form (`--term dumb`) is what the README prints and what a gate can compare byte for byte; the SVG is what a person opens.
-**[open]** whether the SVGs are committed or only generated; a committed SVG is a diff nobody reads, a generated one is a claim the gate checks.
+*Optional second kind of churn [open]:* an independent pharmacy leaving the wholesaler (a B2B account), from the same twin's
+`pharmacies.csv` and its service history (fill rate, late deliveries). Same pipeline, a few hundred rows, a harder statistical problem
+(small groups, exact tests: `fisher`). Left out unless the maintainer wants it.
 
-## 5. What `flow` does here, and what it does not
+## 5. Figures
+
+`plot` is not in the pinned set of this repository's work yet and **its issues stay open for another session [decision of the
+maintainer, 2026-11-12]**. Until then the figures are `--term dumb` text or tables printed by `table`. Nothing in the design depends on
+`plot`; section 9 lists what it would add (calibration curve, forecast against actual, heat map of stockouts, load against the power
+cap).
+
+## 6. What `flow` does here, and what it does not
 
 Each stage is one recorded `flow step` or a `flow run` plan, with its inputs and outputs declared and hashed, so `flow-records check`
 can say that a number in the README is the output of these inputs [choice]. `flow` stays what its `CLAUDE.md` says it is: not a
 scheduler, not a shell. If a stage needs more than a list of argument lists, it is a program called by `flow step`.
 
 **[open]** how a Python twin is started: `flow` starts only programs in its baked directory (docs/design.md), so either that directory holds
-a `python3` entry or the twins are cancho programs. Section 7 settles it in milestone U1 before anything depends on it.
+a `python3` entry or the twins are cancho programs. Milestone U1 settles it before anything depends on it.
 
-## 6. Gates, written before the code they judge
+## 7. Gates, written before the code they judge
 
 Each must be able to fail (a mutant of the twin or the pipeline that it catches):
 
 | gate | what it holds | bound |
 |---|---|---|
 | **G1** twin determinism | two runs give the same bytes; two seeds give different bytes | exact |
-| **G2** truth recovered | the effects the twin put in are found by `stats` (the right sign, an interval that holds the truth) and are not found when the twin is run with the effect set to zero | the intervals and the false-positive rate, fixed in U2 before measuring |
-| **G3** the model earns its place | on a time split, the model beats the baseline by a margin fixed in advance, and is not better than the twin's noise floor | margin fixed before the first run **[open]** |
-| **G4** the decision is checked | `solve verify` accepts every plan; on the small size the plan's cost equals an independent enumeration or HiGHS (scipy, optional in CI) | exact on small, a gap on large |
-| **G5** the record is a proof | `flow-records check` passes; changing one byte of an input makes it fail | exact |
-| **G6** calibration (B) | held-out predicted-against-observed in each decile within a bound fixed in advance | **[open]** |
-| **G8** figures are stable | two runs give the same SVG bytes, and the text form of each figure equals a stored golden | exact |
-| **G7** no panics, every refusal tagged | a fuzz of the pipeline's arguments, as in each repository | the tools' own |
+| **G2** truth recovered | each effect the twin put in is found by `stats` (right sign, an interval that holds the truth) and is **not** found when its coefficient is set to zero | the intervals and the false-positive rate, fixed in U2 before measuring |
+| **G3** coupling is real | with a coupling coefficient set to zero the downstream effect vanishes (a stockout no longer moves lapse; a late delivery no longer moves stockouts); at its value it is found | as G2 |
+| **G4** the model earns its place | on a time split each model beats its baseline by a margin fixed in advance and is not better than the twin's noise floor | margin fixed before the first run **[open]** |
+| **G5** the decision is checked | `solve verify` accepts every plan; on the small size each plan's cost equals an independent enumeration or HiGHS (scipy, optional in CI) | exact on small, a gap on large |
+| **G6** constraints are physical | no plan puts a truck on a route its predicted energy plus reserve exceeds the battery for; no plan orders more than the shelf or cold cap; a plan that does is refused by `solve verify` | exact |
+| **G7** the record is a proof | `flow-records check` passes; changing one byte of an input makes it fail | exact |
+| **G8** calibration (B and the excursion classifier) | held-out predicted against observed in each decile within a bound fixed in advance | **[open]** |
+| **G9** no panics, every refusal tagged | a fuzz of the pipeline's arguments, as in each repository | the tools' own |
 
-Mutants for the twins: a changed rate, a dropped effect, a changed seed mix, an off-by-one in the dwell time. All killed, or each survivor explained.
+Mutants for the twin: a changed rate, a dropped effect, a changed seed mix, a coupling that is wired to the wrong sign, an off-by-one in
+the days-to-expiry. All killed, or each survivor explained.
 
-## 7. Milestones, each its own pull request
+## 8. Milestones, each its own pull request
 
 | | what | done when |
 |---|---|---|
-| **U0** | this document, reviewed | the maintainer says go; the **[open]** items below answered or accepted |
-| **U1** | the twin library (generator, world file, `truth.json`) and G1; how `flow` starts it (section 5) | G1 passes and fails on its mutants |
-| **U2** | B end to end, on the Telco calibration, with G2, G3, G5, G6 | the README output is printed by `flow` records |
-| **U3** | A end to end, with G4 and the `opt` calibration | same |
-| **U4** | C end to end, with censoring | same |
-| **U5** | a measured run on one machine (machine, threads, load, minimum of N), and the claims that the numbers support | numbers in section 8 |
+| **U0** | this document, reviewed | the maintainer says go; the **[open]** items answered or accepted |
+| **U1** | the twin library (generator, world file, `truth.json`), G1, and how `flow` starts it (section 6) | G1 passes and fails on its mutants |
+| **U2** | C and the coupling C to B (the lapse model sees stockouts), with G2, G3, G4, G7 | the README output is printed by `flow` records |
+| **U3** | B end to end, with G8 | same |
+| **U4** | A end to end, with G5, G6 and the `opt` calibration; the coupling A to C | same |
+| **U5** | the closed loop: a week of the whole chain, one command | the loop's numbers are reproducible bytes |
+| **U6** | a measured run on one machine (machine, threads, load, minimum of N) and the claims the numbers support | numbers in section 10 |
 
-## 8. Results
-
-None yet.
+The order is C, B, A because C produces what B and A consume; **[open]** whether A (the most solver-heavy) should come earlier.
 
 ## 9. Open
 
 1. **Where it lives.** This document is in cancho-flow because `flow` records the steps **[choice]**. The examples need the built binaries of
-   five repositories at pinned commits; a directory `examples/` here with a script that builds them is one answer, a repository of its own is
+   five repositories at pinned commits; a directory `examples/` here with a script that builds them is one answer, a repository of its own
    another. The maintainer decides before U1.
-2. The Telco file's licence (section 3).
-3. A reachable public dataset for A and for C (section 3); the sandbox that wrote this could not reach the usual ones.
-4. How the Python twin is started by `flow` (section 5).
-5. The margins of G3 and G6, fixed before the first measurement and recorded here.
-6. **`plot` is a seventh repository** and pins an older compiler (`cancho = "9934b11"`, 2026-11-06 in its `cancho.toml`); the session that wrote this has read access only, so its pin was not moved. Moving it is the same change as the six others and needs push access.
-7. Whether `ml` has a forecasting form beyond features-and-lags with a time split; this design assumes it does not, and says so in the README.
+2. A reachable public dataset for pharmacy sales, for refill histories and for refrigerated-vehicle energy (section 3).
+3. The Telco file: whether to use it as a smoke test, and its licence (section 3).
+4. How the Python twin is started by `flow` (section 6).
+5. **How large a routing model `solve` handles**, measured in U4 before the design depends on it: a stop order within a truck is a small
+   travelling-salesman problem; the example uses it only as far as the measurement allows.
+6. The margins of G4 and G8, fixed before the first measurement and recorded here.
+7. Whether `ml` has a forecasting form beyond features and lags with a time split; this design assumes it does not, and says so in the README.
+8. **`plot`** (cancho-plot) is a seventh repository and pins an older compiler (`cancho = "9934b11"`, in its `cancho.toml`, read 2026-11-12).
+   The session that wrote this has read access only. *Measured 2026-11-12:* it builds with cancho `51524d2` and writes a text chart from
+   CSV on a Linux x86-64 machine; nothing more was run. Its pin move and its figures are for another session, by the maintainer's decision.
+9. **Domain review.** The pharma specifics (cold-chain band, controlled-item caps, shelf lives, adherence grace period) are choices; a
+   person who works in this field should review them before the README presents the example as realistic.
+
+## 10. Results
+
+None yet.
