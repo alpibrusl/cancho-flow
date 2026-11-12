@@ -5,16 +5,16 @@ the file or command it was read from), a **[choice]**, or **[open]**. A claim fo
 
 ## 1. What this is for
 
-The tools (`table`, `stats`, `ml`, `solve`, `opt`, `flow`) are each checked alone. No example uses them *together*, on a question whose
+The tools (`table`, `stats`, `ml`, `solve`, `opt`, `flow` and `plot`) are each checked alone. No example uses them *together*, on a question whose
 answer someone would act on. This document designs three, end to end, and for each a **twin**: a program that generates realistic
 fake data from a stated model of the system, so that the example runs anywhere, in CI, with no data to download and with a known truth to
 check the analysis against.
 
 | | system | question the example answers | tools |
 |---|---|---|---|
-| **A** | an EV charging depot | how much energy will the depot be asked for tomorrow, hour by hour, and how do we charge the cars within the power cap | table, stats, ml, solve, opt, flow |
-| **B** | a subscription business | who is likely to leave, is the model's probability honest, and which retention offers do we make for a fixed budget | table, stats, ml, solve, flow |
-| **C** | a retail chain | how many units of each product will each store sell next week, and what do we order | table, stats, ml, solve, opt, flow |
+| **A** | an EV charging depot | how much energy will the depot be asked for tomorrow, hour by hour, and how do we charge the cars within the power cap | table, stats, ml, solve, opt, plot, flow |
+| **B** | a subscription business | who is likely to leave, is the model's probability honest, and which retention offers do we make for a fixed budget | table, stats, ml, solve, plot, flow |
+| **C** | a retail chain | how many units of each product will each store sell next week, and what do we order | table, stats, ml, solve, opt, plot, flow |
 
 Each is non-trivial in the same way: a time or group structure that a random split would get wrong, a prediction that feeds a decision,
 and a decision that is an optimisation with a checkable answer.
@@ -103,6 +103,24 @@ a contract effect and a charge effect set from the Telco file. Files: `customers
 5. `opt minimize`: calibrates the elasticity to a file.
 6. `flow`.
 
+## 4.4 Figures: `plot`
+
+`plot` ([cancho-plot](https://github.com/alpibrusl/cancho-plot)) reads CSV on standard input and writes SVG or text (`--term svg`,
+`--term dumb`); it can also read the JSON that `stats` and `ml` print (`--json PATH`). *Read from its README, 2026-11-12:* lines and points,
+bands, a diagonal, bars, error bars, histograms, box plots, heatmaps, `--curve roc|ecdf|qq`, a log y axis, `--by`. *Measured 2026-11-12:* it
+builds with the compiler at `51524d2` (cancho main) and writes a text chart from CSV on a Linux x86-64 machine; nothing more was run.
+
+Each example ends in figures, each a `flow step` whose output is hashed like any other (`plot` has no clock and no random, by its `CLAUDE.md`):
+
+| | figures |
+|---|---|
+| **A** | hourly demand, forecast against actual with a band (`--band`); the forecast error by hour (`--with bars`); the charging plan's load against the power cap (`--hline`) |
+| **B** | the calibration curve with the diagonal (`--diag`); an ROC curve (`--curve roc`); the churn rate by contract with error bars (`--yerr`); the importance of each feature (`--with hbars`) |
+| **C** | units against price per SKU (`--by`); the forecast error histogram (`--with hist`); a store-by-week heatmap of stockouts (`--with heat --z`) |
+
+The text form (`--term dumb`) is what the README prints and what a gate can compare byte for byte; the SVG is what a person opens.
+**[open]** whether the SVGs are committed or only generated; a committed SVG is a diff nobody reads, a generated one is a claim the gate checks.
+
 ## 5. What `flow` does here, and what it does not
 
 Each stage is one recorded `flow step` or a `flow run` plan, with its inputs and outputs declared and hashed, so `flow-records check`
@@ -124,6 +142,7 @@ Each must be able to fail (a mutant of the twin or the pipeline that it catches)
 | **G4** the decision is checked | `solve verify` accepts every plan; on the small size the plan's cost equals an independent enumeration or HiGHS (scipy, optional in CI) | exact on small, a gap on large |
 | **G5** the record is a proof | `flow-records check` passes; changing one byte of an input makes it fail | exact |
 | **G6** calibration (B) | held-out predicted-against-observed in each decile within a bound fixed in advance | **[open]** |
+| **G8** figures are stable | two runs give the same SVG bytes, and the text form of each figure equals a stored golden | exact |
 | **G7** no panics, every refusal tagged | a fuzz of the pipeline's arguments, as in each repository | the tools' own |
 
 Mutants for the twins: a changed rate, a dropped effect, a changed seed mix, an off-by-one in the dwell time. All killed, or each survivor explained.
@@ -152,4 +171,5 @@ None yet.
 3. A reachable public dataset for A and for C (section 3); the sandbox that wrote this could not reach the usual ones.
 4. How the Python twin is started by `flow` (section 5).
 5. The margins of G3 and G6, fixed before the first measurement and recorded here.
-6. Whether `ml` has a forecasting form beyond features-and-lags with a time split; this design assumes it does not, and says so in the README.
+6. **`plot` is a seventh repository** and pins an older compiler (`cancho = "9934b11"`, 2026-11-06 in its `cancho.toml`); the session that wrote this has read access only, so its pin was not moved. Moving it is the same change as the six others and needs push access.
+7. Whether `ml` has a forecasting form beyond features-and-lags with a time split; this design assumes it does not, and says so in the README.
