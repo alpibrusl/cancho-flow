@@ -197,6 +197,13 @@ the days-to-expiry. All killed, or each survivor explained.
   twin's true mean; a model that beats the floor has seen something it should not).
 * **G8 (B and the excursion classifier):** in each decile of predicted probability on at least 1,000 held-out rows, the observed rate is
   within 0.05 of the predicted one, or within 5 binomial standard deviations of it if that is larger.
+* **G3 (the coupling from a stockout to a lapse, U2c), fixed 2026-11-12 before the coupling was built or measured.** The twin raises the probability that a patient
+  fails to fill a refill by `lapse_stockout_ppm` (150,000, that is 0.15 in absolute terms) when the patient's home pharmacy was out of that item in the four weeks
+  up to the due date, and the effect is additive, so the difference in the lapse proportion between refills that saw a stockout and refills that did not should be
+  about 0.15. On the `large` size (20,000 patients, so the standard error is a few thousandths): with the effect at its value, `stats test prop` of the lapse
+  against "saw a stockout" gives a difference within 0.02 of 0.15 and p < 1e-6; with the effect set to zero, the difference is within 0.02 of zero and p >= 1e-3.
+  A difference that misses the 0.02 bound is **reported as failed**, and what is learned from it (selection of who is still being refilled, for one) is written
+  down as a finding, not absorbed into a wider bound.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
