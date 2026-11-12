@@ -90,7 +90,37 @@ def simulate(p, n, items, pharmacies, root):
     return disp, truth, {"stockout_cells": sold_out, "written_off_units": wasted, "units_sold": sold_total, "units_demanded": demand_total}
 
 
-def generate(world, seed, size, tables=("core", "dispensing")):
+def refill_series(p, n, patients, items, stockouts, root):
+    """For every patient, the series of refills of each chronic item they take, from a random first due week every interval, until the first one that is not
+    filled (a lapse) or the end of the horizon. A refill is not filled with a probability that is the sum of a base, the regimen, the co-payment, the age
+    band and, when the home pharmacy was out of the item in the weeks up to the due date, the coupling. Returns (rows, counts)."""
+    chronic = [it[0] for it in items if it[6] == "chronic"]
+    r = root.fork("refills")
+    window = p["stockout_window_weeks"]
+    rows, seen_events, lapses = [], 0, 0
+    for pid, age, home, n_items, interval_days, copay in patients:
+        rp = r.fork(pid)
+        pool = list(chronic)
+        chosen = []
+        for _ in range(min(n_items, len(pool))):
+            chosen.append(pool.pop(rp.below(len(pool))))
+        interval = max(1, interval_days // 7)
+        fixed = p["lapse_base_ppm"] + p["lapse_per_extra_item_ppm"] * (n_items - 1) + p["lapse_copay_ppm"][COPAY_BANDS.index(copay)] + p["lapse_age_ppm"][AGE_BANDS.index(age)]
+        for it in sorted(chosen):
+            w = rp.below(interval)
+            while w < n["weeks"]:
+                seen = int(any((home, it, x) in stockouts for x in range(max(0, w - window + 1), w + 1)))
+                lapse = rp.bernoulli(min(1_000_000, fixed + p["lapse_stockout_ppm"] * seen))
+                rows.append((pid, it, home, w, interval, seen, int(not lapse)))
+                seen_events += seen
+                if lapse:
+                    lapses += 1
+                    break
+                w += interval
+    return rows, {"refill_events": len(rows), "refill_events_seen_a_stockout": seen_events, "refill_lapses": lapses}
+
+
+def generate(world, seed, size, tables=("core", "dispensing", "refills")):
     p = {k: v["value"] for k, v in world["params"].items()}
     n = world["sizes"][size]
     root = SplitMix64(seed)
@@ -152,6 +182,11 @@ def generate(world, seed, size, tables=("core", "dispensing")):
         files["truth/demand.csv"] = _csv(("pharmacy", "item", "week", "demand", "true_mean_milli"), tdem)  # the analysis never reads this file; the gates do
         truth["counts"]["weeks"] = n["weeks"]
         truth["realised"].update(sim)
+        if "refills" in tables:
+            stockouts = {(row[0], row[1], row[2]) for row in disp if row[7]}
+            rrows, rcounts = refill_series(p, n, patients, items, stockouts, root)
+            files["refills.csv"] = _csv(("patient", "item", "pharmacy", "due_week", "interval_weeks", "stockout_seen", "filled"), rrows)
+            truth["realised"].update(rcounts)
         truth["realised"]["items_by_group"] = {g: sum(1 for it in items if it[6] == g) for g in GROUPS}
     files["truth.json"] = json.dumps(truth, sort_keys=True, separators=(",", ":")) + "\n"
     return files, truth

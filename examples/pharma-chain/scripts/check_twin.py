@@ -32,7 +32,7 @@ HERE = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 from twinlib.prng import SplitMix64  # noqa: E402  (the gate's own random numbers: the fuzz, not the twin under test)
 
-FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv")
+FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv")
 CORE_FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json")
 
 
@@ -166,6 +166,65 @@ def check(tree, fast=False):
                 prev[key] = (se, od)
         for k, v in bad.items():
             problems.append("ledger: %s: %s" % (k, v))
+        # refills: the series of every patient-item, recounted from the CSVs
+        ref = table(a["refills.csv"])
+        pat = {r["patient"]: r for r in table(a["patients.csv"])}
+        stockouts = {(r["pharmacy"], r["item"], int(r["week"])) for r in disp if r["stockout"] == "1"}
+        window = world["params"]["stockout_window_weeks"]["value"]
+        series, rbad = {}, {}
+        for r in ref:
+            series.setdefault((r["patient"], r["item"]), []).append(r)
+        for (pid, it), rs in series.items():
+            pr = pat[pid]
+            if grp.get(it) != "chronic":
+                rbad["chronic"] = "%s takes %s, which is %s" % (pid, it, grp.get(it))
+            if any(x["pharmacy"] != pr["home_pharmacy"] for x in rs):
+                rbad["home"] = "%s is refilled at a pharmacy other than %s" % (pid, pr["home_pharmacy"])
+            iv = int(rs[0]["interval_weeks"])
+            if int(pr["refill_interval_days"]) // 7 != iv:
+                rbad["interval"] = "%s has interval %d weeks, patients.csv says %s days" % (pid, iv, pr["refill_interval_days"])
+            ws = [int(x["due_week"]) for x in rs]
+            if ws[0] >= iv or any(b - a_ != iv for a_, b in zip(ws, ws[1:])) or ws[-1] >= W:
+                rbad["schedule"] = "%s %s due weeks %s are not one every %d weeks from a start below %d" % (pid, it, ws[:4], iv, iv)
+            if any(x["filled"] != "1" for x in rs[:-1]) or rs[-1]["filled"] not in ("0", "1"):
+                rbad["series"] = "%s %s has a refill after a lapse" % (pid, it)
+            for x in rs:
+                seen = int(any((x["pharmacy"], it, k) in stockouts for k in range(max(0, int(x["due_week"]) - window + 1), int(x["due_week"]) + 1)))
+                if seen != int(x["stockout_seen"]):
+                    rbad["seen"] = "%s %s week %s says stockout_seen %s, dispensing.csv says %d" % (pid, it, x["due_week"], x["stockout_seen"], seen)
+        per_patient = {}
+        for (pid, it) in series:
+            per_patient[pid] = per_patient.get(pid, 0) + 1
+        if any(c > int(pat[pid]["n_items"]) for pid, c in per_patient.items()):
+            rbad["items"] = "a patient takes more items than n_items"
+        tr = json.loads(a["truth.json"])["realised"]
+        if tr.get("refill_events") != len(ref) or tr.get("refill_lapses") != sum(1 for x in ref if x["filled"] == "0"):
+            rbad["truth"] = "truth.json counts %s events and %s lapses, refills.csv holds %d and %d" % (tr.get("refill_events"), tr.get("refill_lapses"), len(ref), sum(1 for x in ref if x["filled"] == "0"))
+        for k, v in rbad.items():
+            problems.append("refills: %s: %s" % (k, v))
+
+        # coupling: seen against not seen, at the parameter's value and with it set to zero (a 4-standard-deviation check of the twin, not the margin of G3)
+        def diff(rows):
+            a1 = [x for x in rows if x["stockout_seen"] == "1"]
+            a0 = [x for x in rows if x["stockout_seen"] == "0"]
+            if len(a1) < 50 or len(a0) < 50:
+                return None, None
+            p1, p0 = sum(x["filled"] == "0" for x in a1) / len(a1), sum(x["filled"] == "0" for x in a0) / len(a0)
+            se = math.sqrt(p1 * (1 - p1) / len(a1) + p0 * (1 - p0) / len(a0))
+            return p1 - p0, se
+        dv, se = diff(ref)
+        want = world["params"]["lapse_stockout_ppm"]["value"] / 1e6
+        if dv is None or abs(dv - want) > 4 * se:
+            problems.append("coupling: lapse proportion seen minus not seen is %s (se %s), the parameter says %.3f" % (("%.4f" % dv) if dv is not None else "undefined", ("%.4f" % se) if se else "-", want))
+        w0 = json.loads(json.dumps(world))
+        w0["params"]["lapse_stockout_ppm"]["value"] = 0
+        (work / "w_noc.json").write_text(json.dumps(w0))
+        z0, _ = gen(tree, work, "w_noc.json", 20261112, "small", "noc")
+        if z0 is not None:
+            dz, sz = diff(table(z0["refills.csv"]))
+            if dz is None or abs(dz) > 4 * sz:
+                problems.append("coupling: with the parameter set to zero the difference is %s (se %s), not zero" % (("%.4f" % dz) if dz is not None else "undefined", ("%.4f" % sz) if sz else "-"))
+
         # the seasonal shape: respiratory demand at the peak week against half a year away, chronic flat
         tot = {}
         for t in dem:
@@ -308,6 +367,10 @@ MUTANTS = [
     ("stockout-flag-wrong", "twinlib/core.py", "int(demand > stock_start)", "int(demand >= stock_start)", "ledger"),
     ("pack-rounding-off", "twinlib/core.py", "ordered = -(-want // pack) * pack if want else 0", "ordered = want", "ledger"),
     ("expiry-lost", "twinlib/core.py", "if exp <= week:\n                    written_off += u", "if exp <= week:\n                    pass", "ledger"),
+    ("coupling-ignored", "twinlib/core.py", 'p["lapse_stockout_ppm"] * seen', "0 * seen", "coupling"),
+    ("window-off-by-one", "twinlib/core.py", "range(max(0, w - window + 1), w + 1)", "range(max(0, w - window + 1), w)", "refills"),
+    ("refills-after-a-lapse", "twinlib/core.py", "                if lapse:\n                    lapses += 1\n                    break\n", "                if lapse:\n                    lapses += 1\n", "refills"),
+    ("wrong-home-pharmacy", "twinlib/core.py", "rows.append((pid, it, home, w, interval, seen, int(not lapse)))", 'rows.append((pid, it, "P001", w, interval, seen, int(not lapse)))', "refills"),
     ("wrong-generator-constant", "twinlib/prng.py", "0x9E3779B97F4A7C15", "0x9E3779B97F4A7C16", "known-answer"),
 ]
 

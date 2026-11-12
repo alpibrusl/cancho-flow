@@ -248,6 +248,46 @@
    "value": 4,
    "source": "choice",
    "note": "weeks of the pharmacy's own sales (censored by stockouts) that its policy averages; stylised"
+  },
+  "lapse_base_ppm": {
+   "value": 20000,
+   "source": "choice",
+   "note": "chance, in parts per million, that a patient does not fill a refill (a lapse), before any other effect; stylised"
+  },
+  "lapse_per_extra_item_ppm": {
+   "value": 10000,
+   "source": "choice",
+   "note": "added to the chance for each chronic item beyond the first (a more complex regimen); stylised"
+  },
+  "lapse_copay_ppm": {
+   "value": [
+    0,
+    15000,
+    40000
+   ],
+   "source": "choice",
+   "note": "added to the chance for a low, mid or high co-payment; stylised"
+  },
+  "lapse_age_ppm": {
+   "value": [
+    30000,
+    10000,
+    0,
+    0,
+    10000
+   ],
+   "source": "choice",
+   "note": "added to the chance for age bands 18-39, 40-54, 55-64, 65-74, 75+; stylised"
+  },
+  "lapse_stockout_ppm": {
+   "value": 150000,
+   "source": "choice",
+   "note": "THE COUPLING (docs/use-cases.md G3): added to the chance when the home pharmacy was out of the item in the window; stylised, and set to 0 for the control"
+  },
+  "stockout_window_weeks": {
+   "value": 4,
+   "source": "choice",
+   "note": "weeks up to the due date in which a stockout counts as seen by the patient; stylised"
   }
  }
 }

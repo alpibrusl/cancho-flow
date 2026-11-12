@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The digital twin of the pharma chain (docs/use-cases.md).
 
-    python3 twin.py generate --world WORLD.json --seed N --size small|large --out DIR [--tables core,dispensing] [--overwrite]
+    python3 twin.py generate --world WORLD.json --seed N --size small|large --out DIR [--tables core,dispensing,refills] [--overwrite]
 
 Writes items.csv, pharmacies.csv, patients.csv and truth.json into DIR (a relative path beneath the working directory). The same world, seed
 and size give the same bytes. On a refusal: one JSON line on standard error with a rule tag `twin.<name>` and a repair, exit status 2.
@@ -39,9 +39,9 @@ def parse_args(argv):
     for k in ("world", "seed", "size", "out"):
         if k not in opts:
             raise TwinError("twin.usage", "missing --%s" % k, "python3 twin.py generate --world W --seed N --size small|large --out DIR")
-    tabs = tuple(sorted(set(opts.get("tables", "core,dispensing").split(","))))
-    if not tabs or any(t not in ("core", "dispensing") for t in tabs) or "core" not in tabs:
-        raise TwinError("twin.bad-tables", "--tables is core or core,dispensing", "use --tables core,dispensing")
+    tabs = tuple(sorted(set(opts.get("tables", "core,dispensing,refills").split(","))))
+    if not tabs or any(t not in ("core", "dispensing", "refills") for t in tabs) or "core" not in tabs or ("refills" in tabs and "dispensing" not in tabs):
+        raise TwinError("twin.bad-tables", "--tables is core, core,dispensing or core,dispensing,refills", "use --tables core,dispensing,refills")
     opts["tables"] = tabs
     if opts["size"] not in world.SIZES:
         raise TwinError("twin.bad-size", "the size is small or large", "use --size small or --size large")

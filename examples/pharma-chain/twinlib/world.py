@@ -39,6 +39,12 @@ PARAMS = {
     "pharmacy_scale_ppm": "weighted",
     "order_cover_ppm": "cover",
     "trailing_weeks": "weeks",
+    "lapse_base_ppm": "share",
+    "lapse_per_extra_item_ppm": "share",
+    "lapse_copay_ppm": "ppm3",
+    "lapse_age_ppm": "ppm5",
+    "lapse_stockout_ppm": "share",
+    "stockout_window_weeks": "weeks",
 }
 
 
@@ -52,6 +58,9 @@ def _check_value(name, kind, v):
         ok = _int(v) and 0 <= v <= 1_000_000
     elif kind == "count":
         ok = _int(v) and 1 <= v <= 1000
+    elif kind in ("ppm3", "ppm5"):
+        n = 3 if kind == "ppm3" else 5
+        ok = isinstance(v, list) and len(v) == n and all(_int(x) and 0 <= x <= 1_000_000 for x in v)
     elif kind == "amp3":
         ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 900_000 for x in v)
     elif kind == "peak3":

@@ -212,7 +212,7 @@ def judge_forecast(fl):
     return problems, report
 
 
-def judge_records(fl):
+def judge_records(fl, victim_file="features_main.csv"):
     problems, report = [], []
     # ---- G7 ----
     r = subprocess.run([fl.records, "check", "--recursive", "--root", ".", "rec"], cwd=fl.root, capture_output=True, text=True)
@@ -220,12 +220,12 @@ def judge_records(fl):
     report.append("G7 flow-records check on %d steps: %s" % (fl.steps, "clean" if r.returncode == 0 and ok else "NOT CLEAN"))
     if r.returncode != 0 or not ok:
         problems.append("G7: flow-records check was not clean on the untouched records: %s" % r.stdout[:300])
-    victim = fl.root / "features_main.csv"
+    victim = fl.root / victim_file
     original = victim.read_bytes()
     victim.write_bytes(original[:-2] + (b"9\n" if original[-2:-1] != b"9" else b"8\n"))
     r = subprocess.run([fl.records, "check", "--recursive", "--root", ".", "rec"], cwd=fl.root, capture_output=True, text=True)
     victim.write_bytes(original)
-    report.append("G7 after changing one byte of features_main.csv: flow-records check exit %d%s" % (r.returncode, "" if r.returncode else " (NOT DETECTED)"))
+    report.append("G7 after changing one byte of %s: flow-records check exit %d%s" % (victim_file, r.returncode, "" if r.returncode else " (NOT DETECTED)"))
     if r.returncode == 0:
         problems.append("G7: changing a byte of a recorded output was not detected")
     return problems, report
