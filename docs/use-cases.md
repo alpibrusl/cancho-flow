@@ -86,7 +86,9 @@ adherence or cold-chain dataset was looked for yet. So:
 units), `stock.csv` (pharmacy, item, day, lot, expiry, units), `orders.csv`.
 
 *Pipeline.*
-1. `table` builds the weekly panel, joins items and lots, and computes lags and days-to-expiry (SQL, one `flow step` each).
+1. `table` selects, filters by week and joins items (`--join`) and writes the training and held-out files (`--out`). **Correction, read from
+   `table skill --full` on 2026-11-12:** `table` has no computed columns and no window functions, so the lags (last week, the mean of the last four)
+   are a small stdlib program, `features.py`, run as a `flow` step. This is a gap of `table` that the example shows, not hides.
 2. `stats`: `describe` and `corr` (demand against temperature and season), `ks` / `mannwhitney` (a respiratory item in winter against
    summer), the share of cells censored by stockout per item.
 3. `ml cv --split-by time:week`, then `ml fit --model boost` (baselines: `constant`, last week). The refill share of demand from B is a
@@ -174,15 +176,28 @@ Each must be able to fail (a mutant of the twin or the pipeline that it catches)
 | **G1** twin determinism | two runs give the same bytes; two seeds give different bytes | exact |
 | **G2** truth recovered | each effect the twin put in is found by `stats` (right sign, an interval that holds the truth) and is **not** found when its coefficient is set to zero | the intervals and the false-positive rate, fixed in U2 before measuring |
 | **G3** coupling is real | with a coupling coefficient set to zero the downstream effect vanishes (a stockout no longer moves lapse; a late delivery no longer moves stockouts); at its value it is found | as G2 |
-| **G4** the model earns its place | on a time split each model beats its baseline by a margin fixed in advance and is not better than the twin's noise floor | margin fixed before the first run **[open]** |
+| **G4** the model earns its place | on a time split each model beats its baseline by a margin fixed in advance and is not better than the twin's noise floor | section 7a |
 | **G5** the decision is checked | `solve verify` accepts every plan; on the small size each plan's cost equals an independent enumeration or HiGHS (scipy, optional in CI) | exact on small, a gap on large |
 | **G6** constraints are physical | no plan puts a truck on a route its predicted energy plus reserve exceeds the battery for; no plan orders more than the shelf or cold cap; a plan that does is refused by `solve verify` | exact |
 | **G7** the record is a proof | `flow-records check` passes; changing one byte of an input makes it fail | exact |
-| **G8** calibration (B and the excursion classifier) | held-out predicted against observed in each decile within a bound fixed in advance | **[open]** |
+| **G8** calibration (B and the excursion classifier) | held-out predicted against observed in each decile within a bound fixed in advance | section 7a |
 | **G9** no panics, every refusal tagged | a fuzz of the pipeline's arguments, as in each repository | the tools' own |
 
 Mutants for the twin: a changed rate, a dropped effect, a changed seed mix, a coupling that is wired to the wrong sign, an off-by-one in
 the days-to-expiry. All killed, or each survivor explained.
+
+## 7a. Margins, fixed before the first measurement **[choice]**
+
+* **G2 (C):** on respiratory items, weekly units in the winter weeks against the summer weeks: `stats test t2` gives a positive difference with
+  p < 1e-6, and the ratio of the two means is within 25 percent of the ratio the twin's parameters give without stockouts (stockouts bias it
+  down; the bound is wide on purpose). On chronic items (no seasonal effect in the twin) p >= 0.001; and with the twin's seasonal amplitude set
+  to zero, respiratory items give p >= 0.001. Seeds are fixed, so the outcome is a function of the code, not of luck.
+* **G4 (C):** on the last 12 weeks, held out in time, the model's mean absolute error is at most 0.90 times the smaller of the two baselines'
+  (the training mean, and last week's units), and at least 0.90 times the noise floor (the mean absolute deviation of a Poisson variable at the
+  twin's true mean; a model that beats the floor has seen something it should not).
+* **G8 (B and the excursion classifier):** in each decile of predicted probability on at least 1,000 held-out rows, the observed rate is
+  within 0.05 of the predicted one, or within 5 binomial standard deviations of it if that is larger.
+* A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
 
@@ -190,7 +205,9 @@ the days-to-expiry. All killed, or each survivor explained.
 |---|---|---|
 | **U0** | this document, reviewed | the maintainer says go; the **[open]** items answered or accepted |
 | **U1** | the twin library (generator, world file, `truth.json`), G1, and how `flow` starts it (section 6) | G1 passes and fails on its mutants |
-| **U2** | C and the coupling C to B (the lapse model sees stockouts), with G2, G3, G4, G7 | the README output is printed by `flow` records |
+| **U2a** | C's twin tables (weekly dispensing with stock, expiry write-off and stockout censoring) and the forecast: G1 for the new tables, G2, G4, G7 | the README output is printed by `flow` records |
+| **U2b** | C's decision: the replenishment model in `solve`, with G5 and G6 for orders | `solve verify` accepts every plan |
+| **U2c** | the coupling C to B (the lapse hazard sees stockouts), with G3 | the coupling is found at its value and not at zero |
 | **U3** | B end to end, with G8 | same |
 | **U4** | A end to end, with G5, G6 and the `opt` calibration; the coupling A to C | same |
 | **U5** | the closed loop: a week of the whole chain, one command | the loop's numbers are reproducible bytes |
@@ -211,7 +228,7 @@ The order is C, B, A because C produces what B and A consume; **[open]** whether
 4. ~~How the Python twin is started by `flow`~~ **Settled in U1** (section 10): `python3` is a symlink in the baked programs directory and the twin's files are `--in`.
 5. **How large a routing model `solve` handles**, measured in U4 before the design depends on it: a stop order within a truck is a small
    travelling-salesman problem; the example uses it only as far as the measurement allows.
-6. The margins of G4 and G8, fixed before the first measurement and recorded here.
+6. ~~The margins of G4 and G8~~ **Fixed 2026-11-12, before any measurement of either (section 7a).**
 7. Whether `ml` has a forecasting form beyond features and lags with a time split; this design assumes it does not, and says so in the README.
 8. **`plot`** (cancho-plot) is a seventh repository and pins an older compiler (`cancho = "9934b11"`, in its `cancho.toml`, read 2026-11-12).
    The session that wrote this has read access only. *Measured 2026-11-12:* it builds with cancho `51524d2` and writes a text chart from
