@@ -45,7 +45,7 @@ class Flow:
         self.tmp = pathlib.Path(tmp)
         prog = self.tmp / "programs"
         prog.mkdir()
-        for name, path in (("python3", shutil.which("python3")), ("table", exe("table", "TABLE")), ("stats", exe("stats", "STATS")), ("ml", exe("ml", "ML"))):
+        for name, path in (("python3", shutil.which("python3")), ("table", exe("table", "TABLE")), ("stats", exe("stats", "STATS")), ("ml", exe("ml", "ML")), ("solve", exe("solve", "SOLVE"))):
             os.symlink(path, prog / name)
         for b in ("flow", "flow-records"):
             r = subprocess.run([sys.executable, str(REPO / "scripts" / "flow_build.py"), "--programs", str(prog), "--out", str(self.tmp / b), "--bin", b], capture_output=True, text=True)
@@ -59,11 +59,13 @@ class Flow:
             shutil.copy(HERE / f, self.root / f)
         self.steps = 0
 
-    def step(self, ins, outs, argv, stdout_file=None):
+    def step(self, ins, outs, argv, stdout_file=None, stdin_file=None):
         outs = list(outs) + ([stdout_file] if stdout_file else [])
-        cmd = [self.flow, "step", "--root", ".", "--record", "rec", "--in", ",".join(ins)] + (["--out", ",".join(outs)] if outs else [])
+        cmd = [self.flow, "step", "--root", ".", "--record", "rec"] + (["--in", ",".join(ins)] if ins else []) + (["--out", ",".join(outs)] if outs else [])
         if stdout_file:
             cmd += ["--stdout-file", stdout_file]
+        if stdin_file:
+            cmd += ["--stdin-file", stdin_file]
         r = subprocess.run(cmd + ["--"] + argv, cwd=self.root, capture_output=True, text=True, timeout=900)
         try:
             doc = json.loads(r.stdout)
@@ -142,6 +144,12 @@ def table(text):
 
 
 def judge(fl):
+    problems, report = judge_forecast(fl)
+    p2, r2 = judge_records(fl)
+    return problems + p2, report + r2
+
+
+def judge_forecast(fl):
     problems, report = [], []
     J = lambda rel: json.loads(fl.read(rel))
     # ---- G2 ----
@@ -201,6 +209,11 @@ def judge(fl):
                 problems.append("G4: boost MAE %.3f is not at most %.2f times the best baseline %.3f" % (mae, G4_IMPROVE, base))
             if mae < G4_FLOOR * floor:
                 problems.append("G4: boost MAE %.3f is below %.2f times the noise floor %.3f: it has seen something it should not" % (mae, G4_FLOOR, floor))
+    return problems, report
+
+
+def judge_records(fl):
+    problems, report = [], []
     # ---- G7 ----
     r = subprocess.run([fl.records, "check", "--recursive", "--root", ".", "rec"], cwd=fl.root, capture_output=True, text=True)
     ok = json.loads(r.stdout).get("ok") if r.stdout.strip().startswith("{") else False
