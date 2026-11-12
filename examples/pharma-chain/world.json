@@ -1,0 +1,22 @@
+{
+  "schema": "twin.world.v1",
+  "name": "pharma-chain",
+  "sizes": {
+    "small": {"pharmacies": 8, "items": 60, "patients": 600},
+    "large": {"pharmacies": 60, "items": 600, "patients": 20000}
+  },
+  "params": {
+    "cold_chain_share_ppm": {"value": 150000, "source": "choice", "note": "share of items that need the refrigerated range; stylised, not fitted (docs/use-cases.md section 3)"},
+    "controlled_share_ppm": {"value": 50000, "source": "choice", "note": "share of items with a per-order cap; stylised"},
+    "critical_share_ppm": {"value": 200000, "source": "choice", "note": "share of items whose absence costs more; stylised"},
+    "shelf_life_days": {"value": [[180, 20], [365, 30], [730, 35], [1095, 15]], "source": "choice", "note": "[days, weight]; months to years; stylised"},
+    "pack_sizes": {"value": [[10, 25], [20, 25], [30, 30], [60, 20]], "source": "choice", "note": "[units per pack, weight]; stylised"},
+    "refill_interval_days": {"value": [[30, 70], [90, 30]], "source": "choice", "note": "[days, weight]; monthly or a 90-day supply; stylised"},
+    "items_per_patient": {"value": [[1, 45], [2, 30], [3, 15], [4, 10]], "source": "choice", "note": "[chronic items, weight]; stylised"},
+    "shelf_capacity_units": {"value": [[2000, 30], [4000, 50], [8000, 20]], "source": "choice", "note": "[units, weight]; a pharmacy's ambient shelf space; stylised"},
+    "cold_capacity_units": {"value": [[100, 40], [250, 40], [500, 20]], "source": "choice", "note": "[units, weight]; a pharmacy's refrigerated space; stylised"},
+    "age_band_weights": {"value": [10, 20, 25, 25, 20], "source": "choice", "note": "weights of 18-39, 40-54, 55-64, 65-74, 75+ among patients on chronic medicines; stylised"},
+    "copay_band_weights": {"value": [40, 40, 20], "source": "choice", "note": "weights of low, mid, high co-payment; stylised"},
+    "regions": {"value": 4, "source": "choice", "note": "number of delivery regions; stylised"}
+  }
+}

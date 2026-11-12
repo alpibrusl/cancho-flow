@@ -161,8 +161,9 @@ Each stage is one recorded `flow step` or a `flow run` plan, with its inputs and
 can say that a number in the README is the output of these inputs [choice]. `flow` stays what its `CLAUDE.md` says it is: not a
 scheduler, not a shell. If a stage needs more than a list of argument lists, it is a program called by `flow step`.
 
-**[open]** how a Python twin is started: `flow` starts only programs in its baked directory (`docs/design.md`), so either that directory holds
-a `python3` entry or the twins are cancho programs. Milestone U1 settles it before anything depends on it.
+How a Python twin is started: `flow` starts only programs in its baked directory (`docs/design.md`), and that directory holds symlinks, as the
+gates' own does for `sh` and `cat`. **Settled in U1 [measured]:** a `python3` symlink there starts the twin; the twin's files are declared `--in`
+and its outputs `--out`, and the record names the SHA-256 of the `python3` file and of every declared input (section 10).
 
 ## 7. Gates, written before the code they judge
 
@@ -207,7 +208,7 @@ The order is C, B, A because C produces what B and A consume; **[open]** whether
    gates out of it; the document moves unchanged.
 2. A reachable public dataset for pharmacy sales, for refill histories and for refrigerated-vehicle energy (section 3).
 3. The Telco file: whether to use it as a smoke test, and its licence (section 3).
-4. How the Python twin is started by `flow` (section 6).
+4. ~~How the Python twin is started by `flow`~~ **Settled in U1** (section 10): `python3` is a symlink in the baked programs directory and the twin's files are `--in`.
 5. **How large a routing model `solve` handles**, measured in U4 before the design depends on it: a stop order within a truck is a small
    travelling-salesman problem; the example uses it only as far as the measurement allows.
 6. The margins of G4 and G8, fixed before the first measurement and recorded here.
@@ -220,4 +221,23 @@ The order is C, B, A because C produces what B and A consume; **[open]** whether
 
 ## 10. Results
 
-None yet.
+### U1: the twin library, G1, and how `flow` starts it (2026-11-12)
+
+*Machine: the cloud container of the session that wrote this (Linux x86-64, Python 3, one run each; other platforms are not measured). Code:
+`examples/pharma-chain/` (`twin.py`, `twinlib/`, `world.json`, `scripts/check_twin.py`, `scripts/flow_twin.sh`). The twin so far generates the shared
+entities only (items, pharmacies, patients) and `truth.json`; the three use cases add their own tables in U2 to U4.*
+
+* **G1 holds on the committed twin [measured]:** `python3 scripts/check_twin.py` passes in about 9 seconds: the SplitMix64 reference values for seed 0,
+  the moments of `normal_micro` over 20,000 draws, two runs of the same world, seed and size with identical bytes in every file, another seed
+  with different bytes, independence of the tables (one more item moves neither pharmacies nor patients), the row counts, the shares on the large
+  size recounted from the CSV within 5 standard deviations, the 0 and 1,000,000 ppm extremes, no working directory or host name in any file, 15
+  refusals each with its `twin.<name>` tag and nothing written, and 300 random argument lists with no traceback.
+* **G1 can fail [measured]:** `python3 scripts/check_twin.py --mutants`: the control passes and **11 of 11 mutants are killed**, each by the check
+  that targets it (a seed ignored, a path in `truth.json`, an extra row, a share ignored, weights ignored, eleven uniforms instead of twelve, `..`
+  allowed in `--out`, shared streams, an unknown parameter allowed, Python's `random`, a wrong generator constant). About 23 seconds.
+* **Through `flow` [measured]:** `scripts/flow_twin.sh` builds a `flow` whose programs directory holds a `python3` symlink, runs the twin as a
+  recorded step in two copies of the tree and gets **the same record, byte for byte** (record id `d9d470c6...`); with the world changed by one
+  patient the record differs. About 6 seconds including the `flow` build.
+* **What this does not show:** other platforms, other Python versions (the twin uses no floating-point library function, which is why it should
+  hold, but it is a reason, not a measurement), or any of the three use cases' own tables.
+
