@@ -32,18 +32,19 @@ HERE = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 from twinlib.prng import SplitMix64  # noqa: E402  (the gate's own random numbers: the fuzz, not the twin under test)
 
-FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json")
+FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv")
+CORE_FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json")
 
 
 def run(tree, args, cwd):
     return subprocess.run([sys.executable, str(tree / "twin.py")] + args, cwd=cwd, capture_output=True, text=True, timeout=120)
 
 
-def gen(tree, work, world, seed, size, out):
-    r = run(tree, ["generate", "--world", world, "--seed", str(seed), "--size", size, "--out", out], work)
+def gen(tree, work, world, seed, size, out, tables=None):
+    r = run(tree, ["generate", "--world", world, "--seed", str(seed), "--size", size, "--out", out] + (["--tables", tables] if tables else []), work)
     if r.returncode != 0:
         return None, r
-    return {f: (pathlib.Path(work) / out / f).read_bytes() for f in FILES}, r
+    return {f: (pathlib.Path(work) / out / f).read_bytes() for f in (CORE_FILES if tables == "core" else FILES)}, r
 
 
 def lib(tree, code):
@@ -71,7 +72,8 @@ def check(tree, fast=False):
     world_path = tree / "world.json"
     world = json.loads(world_path.read_text())
     with tempfile.TemporaryDirectory() as td:
-        work = pathlib.Path(td)
+        work = pathlib.Path(td) / "w"  # one level in, so that a `..` that gets through writes inside td and is removed with it
+        work.mkdir()
         shutil.copy(world_path, work / "world.json")
 
         # known-answer
@@ -89,8 +91,18 @@ def check(tree, fast=False):
         except ValueError:
             problems.append("normal: the draw did not run: %s" % r.stderr.strip()[-100:])
 
+        # poisson
+        r = lib(tree, "from twinlib.prng import SplitMix64\nr=SplitMix64(7)\nout=[]\nfor lam in (500, 3000, 20000):\n    x=[r.poisson_milli(lam) for _ in range(20000)]\n    m=sum(x)/len(x)\n    v=sum((a-m)**2 for a in x)/len(x)\n    out.append((lam/1000, m, v))\nprint(out)")
+        try:
+            for lam, m, v in eval(r.stdout):
+                if abs(m - lam) > 5 * math.sqrt(lam / 20000) or abs(v - lam) > 0.1 * lam + 0.05:
+                    problems.append("poisson: mean %.3f and variance %.3f at mean %.1f" % (m, v, lam))
+        except Exception:
+            problems.append("poisson: the draw did not run: %s" % r.stderr.strip()[-100:])
+
         # determinism, seed
         a, ra = gen(tree, work, "world.json", 20261112, "small", "a")
+        a_core = {f: a[f] for f in CORE_FILES} if a else None
         b, rb = gen(tree, work, "world.json", 20261112, "small", "b")
         if a is None or b is None:
             return problems + ["determinism: the twin did not run: %s" % ((ra.stderr if a is None else rb.stderr).strip()[-120:])]
@@ -99,7 +111,7 @@ def check(tree, fast=False):
                 problems.append("determinism: two runs of the same world, seed and size differ in %s" % f)
         c, _ = gen(tree, work, "world.json", 20261113, "small", "c")
         if c is not None:
-            for f in ("items.csv", "patients.csv"):
+            for f in ("items.csv", "patients.csv", "dispensing.csv"):
                 if c[f] == a[f]:
                     problems.append("seed: another seed gives the same %s" % f)
 
@@ -108,10 +120,10 @@ def check(tree, fast=False):
             w2 = json.loads(json.dumps(world))
             w2["sizes"]["small"][key] += 1
             (work / ("w_%s.json" % label)).write_text(json.dumps(w2))
-            d, _ = gen(tree, work, "w_%s.json" % label, 20261112, "small", "d_" + label)
+            d, _ = gen(tree, work, "w_%s.json" % label, 20261112, "small", "d_" + label, "core")
             if d is not None:
                 for f in same:
-                    if d[f] != a[f]:
+                    if d[f] != a_core[f]:
                         problems.append("independence: one more %s moves %s" % (label, f))
 
         # rows
@@ -120,8 +132,55 @@ def check(tree, fast=False):
             if rows(a[f]) != n[key]:
                 problems.append("rows: %s has %d rows, the world says %d" % (f, rows(a[f]), n[key]))
 
+        # ledger: the stock accounting and the censoring, recounted from the CSVs (the truth file is read here, as the gates may)
+        W = n["weeks"]
+        if rows(a["dispensing.csv"]) != n["pharmacies"] * n["items"] * W:
+            problems.append("rows: dispensing.csv has %d rows, the world says %d" % (rows(a["dispensing.csv"]), n["pharmacies"] * n["items"] * W))
+        disp, dem = table(a["dispensing.csv"]), table(a["truth/demand.csv"])
+        pack = {r["item"]: int(r["pack_size"]) for r in table(a["items.csv"])}
+        grp = {r["item"]: r["therapeutic_group"] for r in table(a["items.csv"])}
+        prev, bad = {}, {}
+        if len(dem) != len(disp):
+            problems.append("ledger: truth/demand.csv has %d rows, dispensing.csv %d" % (len(dem), len(disp)))
+        else:
+            for r, t in zip(disp, dem):
+                ss, rc, wo, u, so, se, od = (int(r[k]) for k in ("stock_start", "received", "written_off", "units", "stockout", "stock_end", "ordered"))
+                d = int(t["demand"])
+                key = (r["pharmacy"], r["item"])
+                if (r["pharmacy"], r["item"], r["week"]) != (t["pharmacy"], t["item"], t["week"]):
+                    bad["order"] = "dispensing and demand rows are not the same cells in the same order"
+                if min(ss, rc, wo, u, so, se, od, d) < 0:
+                    bad["negative"] = "a negative quantity in %s" % r
+                if se != ss - u:
+                    bad["identity"] = "stock_end %d is not stock_start %d minus units %d" % (se, ss, u)
+                if u != min(d, ss):
+                    bad["censor"] = "units %d is not min(demand %d, stock_start %d)" % (u, d, ss)
+                if so != int(d > ss):
+                    bad["flag"] = "stockout %d with demand %d and stock_start %d" % (so, d, ss)
+                if od % pack[r["item"]]:
+                    bad["pack"] = "ordered %d is not a multiple of the pack size %d" % (od, pack[r["item"]])
+                if key in prev and ss != prev[key][0] + rc - wo:
+                    bad["chain"] = "stock_start %d is not last week's stock_end %d plus received %d minus written_off %d" % (ss, prev[key][0], rc, wo)
+                if key in prev and rc != prev[key][1]:
+                    bad["arrival"] = "received %d is not what was ordered last week, %d" % (rc, prev[key][1])
+                prev[key] = (se, od)
+        for k, v in bad.items():
+            problems.append("ledger: %s: %s" % (k, v))
+        # the seasonal shape: respiratory demand at the peak week against half a year away, chronic flat
+        tot = {}
+        for t in dem:
+            w = int(t["week"]) % 52
+            tot[(grp[t["item"]], w)] = tot.get((grp[t["item"]], w), 0) + int(t["demand"])
+        P0 = {k: v["value"] for k, v in world["params"].items()}
+        for gi, g in enumerate(("chronic", "respiratory", "allergy")):
+            pk, am = P0["season_peak_week"][gi], P0["season_amplitude_ppm"][gi]
+            hi, lo = tot.get((g, pk), 0), tot.get((g, (pk + 26) % 52), 0)
+            want = (1_000_000 + am) / (1_000_000 - am)
+            if hi == 0 or lo == 0 or abs(hi / lo - want) > 0.2 * want:
+                problems.append("seasonal: %s demand at its peak week against half a year away is %s, the parameters say %.2f" % (g, ("%.2f" % (hi / lo)) if lo else "undefined", want))
+
         # share: the large size, recounted from the CSV
-        big, _ = gen(tree, work, "world.json", 20261112, "large", "big")
+        big, _ = gen(tree, work, "world.json", 20261112, "large", "big", "core")
         if big is not None:
             P = {k: v["value"] for k, v in world["params"].items()}
             items, patients = table(big["items.csv"]), table(big["patients.csv"])
@@ -149,7 +208,7 @@ def check(tree, fast=False):
             w2 = json.loads(json.dumps(world))
             w2["params"]["cold_chain_share_ppm"]["value"] = ppm
             (work / "w_ext.json").write_text(json.dumps(w2))
-            d, _ = gen(tree, work, "w_ext.json", 5, "small", "e%d" % ppm)
+            d, _ = gen(tree, work, "w_ext.json", 5, "small", "e%d" % ppm, "core")
             if d is not None:
                 cold = sum(int(r["cold_chain"]) for r in table(d["items.csv"]))
                 if cold != (n["items"] if want_all else 0):
@@ -243,6 +302,12 @@ MUTANTS = [
     ("streams-shared", "twinlib/prng.py", 'return SplitMix64(int.from_bytes(h[:8], "big"))', "return self", "independence"),
     ("unknown-param-allowed", "twinlib/world.py", "if k not in PARAMS:", "if False:", "refusal"),
     ("python-random", "twinlib/core.py", '1 + r.below(p["regions"])', '1 + __import__("random").randrange(p["regions"])', "determinism"),
+    ("poisson-mean-ignored", "twinlib/prng.py", "lam = Decimal(mean_milli) / Decimal(1000)", "lam = Decimal(3)", "poisson"),
+    ("season-ignored", "twinlib/core.py", 'seas = season_ppm(week, p["season_peak_week"][g], p["season_amplitude_ppm"][g])', "seas = 1_000_000", "seasonal"),
+    ("no-censoring", "twinlib/core.py", "sold = min(demand, stock_start)", "sold = demand", "ledger"),
+    ("stockout-flag-wrong", "twinlib/core.py", "int(demand > stock_start)", "int(demand >= stock_start)", "ledger"),
+    ("pack-rounding-off", "twinlib/core.py", "ordered = -(-want // pack) * pack if want else 0", "ordered = want", "ledger"),
+    ("expiry-lost", "twinlib/core.py", "if exp <= week:\n                    written_off += u", "if exp <= week:\n                    pass", "ledger"),
     ("wrong-generator-constant", "twinlib/prng.py", "0x9E3779B97F4A7C15", "0x9E3779B97F4A7C16", "known-answer"),
 ]
 

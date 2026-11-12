@@ -32,6 +32,13 @@ PARAMS = {
     "age_band_weights": "weights5",
     "copay_band_weights": "weights3",
     "regions": "count",
+    "therapeutic_group_weights": "weights3",
+    "season_amplitude_ppm": "amp3",
+    "season_peak_week": "peak3",
+    "item_base_rate_milli": "weighted",
+    "pharmacy_scale_ppm": "weighted",
+    "order_cover_ppm": "cover",
+    "trailing_weeks": "weeks",
 }
 
 
@@ -45,6 +52,14 @@ def _check_value(name, kind, v):
         ok = _int(v) and 0 <= v <= 1_000_000
     elif kind == "count":
         ok = _int(v) and 1 <= v <= 1000
+    elif kind == "amp3":
+        ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 900_000 for x in v)
+    elif kind == "peak3":
+        ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 51 for x in v)
+    elif kind == "cover":
+        ok = _int(v) and 100_000 <= v <= 10_000_000
+    elif kind == "weeks":
+        ok = _int(v) and 1 <= v <= 52
     elif kind == "weighted":
         ok = (isinstance(v, list) and 1 <= len(v) <= 64
               and all(isinstance(p, list) and len(p) == 2 and _int(p[0]) and p[0] >= 1 and _int(p[1]) and p[1] >= 1 for p in v))
@@ -70,8 +85,8 @@ def parse(text):
         raise TwinError("twin.bad-world", "sizes must hold exactly small and large")
     for s in SIZES:
         e = sizes[s]
-        if not isinstance(e, dict) or set(e) != {"pharmacies", "items", "patients"} or not all(_int(e[k]) and 1 <= e[k] <= MAX_COUNT for k in e):
-            raise TwinError("twin.bad-world", "size %s needs pharmacies, items and patients, each 1 to %d" % (s, MAX_COUNT))
+        if not isinstance(e, dict) or set(e) != {"pharmacies", "items", "patients", "weeks"} or not all(_int(e[k]) and 1 <= e[k] <= MAX_COUNT for k in e) or e["weeks"] > 520:
+            raise TwinError("twin.bad-world", "size %s needs pharmacies, items, patients (each 1 to %d) and weeks (1 to 520)" % (s, MAX_COUNT))
     params = w.get("params")
     if not isinstance(params, dict):
         raise TwinError("twin.bad-world", "the world has no params")

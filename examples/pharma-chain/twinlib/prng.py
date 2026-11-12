@@ -4,6 +4,7 @@ Python's `random` is not used: its stream is a property of the Python version. N
 library, whose last bit can differ between platforms: every draw is an integer, and a probability is an integer in parts per million.
 """
 import hashlib
+from decimal import Decimal, localcontext
 
 MASK = (1 << 64) - 1
 PPM = 1_000_000
@@ -53,6 +54,21 @@ class SplitMix64:
                 return i
             r -= w
         raise AssertionError("unreachable: r < total")
+
+    def poisson_milli(self, mean_milli):
+        """A Poisson draw with mean mean_milli/1000, by inversion in decimal arithmetic (correctly rounded, so the same on every platform)."""
+        with localcontext() as ctx:
+            ctx.prec = 40
+            lam = Decimal(mean_milli) / Decimal(1000)
+            term = (-lam).exp()
+            cdf = term
+            u = Decimal(self.below(10**12)) / Decimal(10**12)
+            k = 0
+            while u >= cdf and k < 100000:
+                k += 1
+                term = term * lam / k
+                cdf += term
+            return k
 
     def normal_micro(self):
         """An integer with mean 0 and standard deviation 1,000,000 (the Irwin-Hall sum of twelve uniforms: exact, no libm)."""
