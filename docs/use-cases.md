@@ -204,6 +204,14 @@ the days-to-expiry. All killed, or each survivor explained.
   against "saw a stockout" gives a difference within 0.02 of 0.15 and p < 1e-6; with the effect set to zero, the difference is within 0.02 of zero and p >= 1e-3.
   A difference that misses the 0.02 bound is **reported as failed**, and what is learned from it (selection of who is still being refilled, for one) is written
   down as a finding, not absorbed into a wider bound.
+* **G2, G4 and G8 for B (U3a), fixed 2026-11-12 before the model of the lapse was built or measured.** On the `large` size, the unit being a refill event, the lapse the
+  label, and a time split: fit on due weeks before 60, calibrate on 60 to 77, test on 78 to 103.
+  * **G2:** `stats test chisq` of the lapse against each of the number of items, the co-payment band, the age band and "saw a stockout" gives p < 1e-6 for each in the twin as it
+    is; in a control twin whose four lapse effects are set to zero (the base stays) each gives p >= 1e-3.
+  * **G4:** on the test weeks the log loss of the calibrated boost is at most 0.98 times that of the constant model (the training lapse rate), and at least 0.99 times the log
+    loss of the true probabilities, which the twin writes to `truth/` and the analysis never reads (a model that beats the truth has seen something it should not).
+  * **G8:** in each decile of the calibrated probability on the test weeks (at least 1,000 rows each), the observed lapse rate is within 0.05 of the predicted one, or within
+    5 binomial standard deviations of it if that is larger. The uncalibrated probabilities are reported against the same bound and are not judged by it.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
@@ -215,7 +223,8 @@ the days-to-expiry. All killed, or each survivor explained.
 | **U2a** | C's twin tables (weekly dispensing with stock, expiry write-off and stockout censoring) and the forecast: G1 for the new tables, G2, G4, G7 | the README output is printed by `flow` records |
 | **U2b** | C's decision: the replenishment model in `solve`, with G5 and G6 for orders | `solve verify` accepts every plan |
 | **U2c** | the coupling C to B (the lapse hazard sees stockouts), with G3 | the coupling is found at its value and not at zero |
-| **U3** | B end to end, with G8 | same |
+| **U3a** | B's model: the lapse predicted from what is known at each due date, on a time split, calibrated; the effects recovered by `stats`: G1 for the true hazards, G2, G4 and G8 for B | the README output is printed by `flow` records |
+| **U3b** | B's decision: who gets which outreach under a budget, in `solve`, and the twin's own effect of an outreach (it does not have one yet) | `solve verify` accepts every plan |
 | **U4** | A end to end, with G5, G6 and the `opt` calibration; the coupling A to C | same |
 | **U5** | the closed loop: a week of the whole chain, one command | the loop's numbers are reproducible bytes |
 | **U6** | a measured run on one machine (machine, threads, load, minimum of N) and the claims the numbers support | numbers in section 10 |
