@@ -226,7 +226,7 @@ The order is C, B, A because C produces what B and A consume; **[open]** whether
 2. A reachable public dataset for pharmacy sales, for refill histories and for refrigerated-vehicle energy (section 3).
 3. The Telco file: whether to use it as a smoke test, and its licence (section 3).
 4. ~~How the Python twin is started by `flow`~~ **Settled in U1** (section 10): `python3` is a symlink in the baked programs directory and the twin's files are `--in`.
-5. **How large a routing model `solve` handles**, measured in U4 before the design depends on it: a stop order within a truck is a small
+5. **How large a routing model `solve` handles**, measured in U4 before the design depends on it (U2b measured a replenishment model, not a routing one; see section 10): a stop order within a truck is a small
    travelling-salesman problem; the example uses it only as far as the measurement allows.
 6. ~~The margins of G4 and G8~~ **Fixed 2026-11-12, before any measurement of either (section 7a).**
 7. Whether `ml` has a forecasting form beyond features and lags with a time split; this design assumes it does not, and says so in the README.
@@ -318,4 +318,47 @@ dropped from the model (MAE 5.167, not under 0.90 times 2.323).
 **What this does not show:** one seed, one size, one machine; real pharmacies; a model better than the two baselines at a horizon of more than one
 week; anything about C's decision (U2b) or the coupling (U2c). That the forecast beats last week's units by 21 percent says what it does on a twin
 whose seasonality is a clean triangle, not what it would do on real sales.
+
+### U2b: C's decision, the replenishment model in `solve` (2026-11-12)
+
+*Same machine and conditions as U1 and U2a. Code: `build_models.py` (the model), `costs.json` (the economics, every value a stylised choice), `verify_input.py`,
+`scripts/oracle_highs.py`, `scripts/plan_c.py`. HiGHS is scipy 1.18.1 in a scratch environment (`SCIPY_PYTHON`); without scipy the oracle is reported not run and
+the gate fails unless `SKIP_ORACLE=1` says it was left out.*
+
+**The decision.** For each pharmacy and held-out week: how many packs of each of the 60 items to order, to minimise the penalty on units short of a service
+target (the forecast plus 1.28 times its square root), a proxy cost for units held beyond what the shelf life can sell, and a small cost per unit ordered; with the
+room left in the refrigerated and the ambient space as the capacities, and a lower cap for controlled items. Each decision is a mixed-integer program of 180
+variables (60 integer) and 122 rows.
+
+**What `solve` did [measured].** All 96 decisions (8 pharmacies by 12 weeks) were solved to optimality, **about 0.035 seconds each** (35 nodes on the first one),
+and `solve verify` returned `verified` with the objective checked on every one. This answers part of open item 5: a model of this size is not a problem for
+`solve`; a routing model is a different shape and is still to be measured in U4.
+
+**G5 [measured, passes]:** HiGHS, given the *data* of each decision and not the model text, got the same optimum on all 96 (worst relative gap 9.1e-8); and on a
+toy decision of four items (1,029 orders tried, the cost written out in the gate apart from the builder) the enumeration and `solve` both give 138.865010.
+
+**G6 [measured, passes]:** recomputed from the raw stock and the capacities, no plan orders more than the room that is left, a fractional pack, or more packs than
+allowed, and the objective of every plan is the formula's. A plan with an order past its bound is refused by `solve verify` with `solve.bound-violated`, and one
+with an order into a full refrigerated space with `solve.row-violated`.
+
+**G7 [measured, passes]:** 404 recorded `flow` steps (the forecast of U2a, then build, solve, join and verify for each of the 96 decisions) check clean, and a changed
+byte is detected. `flow` allows 64 declared files in a step, which is why each decision is its own small step.
+
+**Mutants [measured]:** the control passes and **6 of 6 are killed**: the cold-room constraint dropped (G6: 69 of 96 plans order into a full space), the room
+computed without the stock (G6), the sign of the service margin flipped (G5, the toy), a wrong stock written into the model text only (G5, HiGHS, gap 0.36), the
+waste cost zero in the model text only (G5, HiGHS), the controlled-item cap dropped (G5, the toy: 4.0 against 138.865).
+
+**A finding about the twin.** The first model was infeasible, and the cause was physical: the pharmacy in the first decision already held 209 refrigerated units
+against a cap of 100, because the twin's plain ordering policy never looks at the cap. The constraint is therefore on what can still be received (the room, never
+below zero), and 69 of the 96 decisions have no refrigerated room at all. That is a property of the twin's naive policy, not of real pharmacies; it makes the
+cap bind often, which is useful to the gate and unrealistic as a picture of a pharmacy.
+
+**Exploratory, not a claim.** No margin was fixed for decision quality before this run, so none is judged. Over the 96 decisions, against the pharmacy's own order and
+the true demand of each week: the plan ordered 29,140 units against 33,860; it left 758 units short against 147, of which 6 against 10 on critical items; and 102,351
+units on hand beyond demand against 106,460. Under the costs of `costs.json` (a unit short costs 10, or 30 if critical, a unit held beyond cover 2, a unit ordered
+0.05) the optimum accepts shortfall on ordinary items to order less, and protects the critical ones. Whether that is a better policy depends on those costs, which
+are choices; this run does not show that it is.
+
+**What this does not show:** one forecast, one seed, one size, one machine; a decision that looks more than one week ahead; the real economics of a pharmacy; a routing
+or charging model (U4).
 
