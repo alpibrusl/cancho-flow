@@ -227,6 +227,15 @@ the days-to-expiry. All killed, or each survivor explained.
     outreach in the order the events are listed (patient order) until the minutes run out, cheapest outreach first; and the value the plan *expects* (calibrated probability)
     is within 0.10 of its true value, as a fraction of the true value. In at least half of the 520 decisions at least one of the three limits binds (otherwise the decision is
     trivial and says nothing). A margin that fails is reported as failed.
+* **G10, the size `solve` can take for A's route selection (U4, open item 5), fixed 2026-11-13 before any routing model was built.** *Choice of model:* the day's deliveries are covered by
+  routes picked from a pool that a program generates (every subset of up to 3 deliveries, in the order of their window ends, that meets every time window), each route to be driven by
+  one of K = 4 trucks whose battery must hold the route's energy plus a reserve, each truck at most one route a day, each delivery exactly once, cost = energy price times energy plus a fixed
+  cost per route (stop order is data, as section 4.2 says; `solve` lists "vehicle routing as a dedicated API" as not in scope, cancho-solve `docs/design.md` section 1). The measurement is on random seeded
+  instances from `scripts/route_pool_size.py`, not on the twin: `solve run` with its defaults, wall time (the process, `solve check` included), minimum of 3 runs, the load on the machine written beside the number.
+  **Claims, each of which the measurement can refute:** (a) D = 10 deliveries on three seeds: `optimal` in at most 5 s each; (b) D = 14 on three seeds: `optimal` in at most 60 s each; (c) every
+  `optimal` objective equals HiGHS's on the same data to 1e-6 relative. **Rule fixed now for what follows:** U4's decision uses the largest D (10, 14 or 18) for which all three seeds pass its bound
+  (a at most 5 s; b at most 60 s; for 18 no bound is claimed: it is run with the node limit and reported); if (b) fails, U4 uses D = 10 and says why, and the failure goes into section 10 and to
+  cancho-solve as a model of that shape.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
