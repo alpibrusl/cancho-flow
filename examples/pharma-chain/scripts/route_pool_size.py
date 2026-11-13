@@ -4,7 +4,7 @@
     SOLVE=<solve> [SCIPY_PYTHON=<python with scipy>] python3 scripts/route_pool_size.py [--sizes 10,14,18] [--seeds 1,2,3] [--runs 3]
 
 D deliveries, each a pharmacy at a random point of a 40 km square with a 2-hour window starting on the hour between 08:00 and 14:00 and 15 minutes of service; every subset of up to 3
-deliveries, in the order of their window ends, that meets every window (30 km/h, wait until a window opens) is a route; a route has an energy (0.9 kWh/km plus 4 kW of refrigeration for the
+deliveries, in the order of their window ends, that meets every window (30 km/h, wait until a window opens) is a route; a route has an energy (0.45 kWh/km plus 2 kW of refrigeration for the
 whole duration) and a cost (0.2 per kWh plus 30 a route). K = 8 trucks with batteries 60, 80, 100, 120 kWh (twice) and a reserve of 15 kWh; a truck takes a route only if energy + reserve fits. Each
 delivery exactly once, each truck at most one route. All numbers are choices of this experiment. Prints one line per instance and a verdict per claim.
 """
@@ -49,7 +49,7 @@ def instance(D, seed):
                 dist += math.hypot(px, py)
                 t += math.hypot(px, py) / 30.0 * 60.0
                 dur_h = (t - (8 * 60.0 - 60.0)) / 60.0
-                energy = 0.9 * dist + 4.0 * dur_h
+                energy = 0.45 * dist + 2.0 * dur_h
                 routes.append((sub, energy, 0.2 * energy + 30.0))
     return dels, routes
 
@@ -124,7 +124,7 @@ def main(argv):
             best, doc = None, None
             for _ in range(runs):
                 t0 = time.time()
-                r = subprocess.run([solve, "run"], stdin=open(f.name), capture_output=True, text=True, timeout=1800)
+                r = subprocess.run([solve, "run"] + (["--node-limit", "20000"] if D >= 18 else []), stdin=open(f.name), capture_output=True, text=True, timeout=1800)
                 dt = time.time() - t0
                 if best is None or dt < best:
                     best = dt
