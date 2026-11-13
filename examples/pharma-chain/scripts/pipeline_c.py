@@ -59,7 +59,7 @@ class Flow:
             shutil.copy(HERE / f, self.root / f)
         self.steps = 0
 
-    def step(self, ins, outs, argv, stdout_file=None, stdin_file=None, max_output=None):
+    def step(self, ins, outs, argv, stdout_file=None, stdin_file=None, max_output=None, allow_failure=False):
         outs = list(outs) + ([stdout_file] if stdout_file else [])
         rec = "rec/%d" % (self.steps // 800)  # a record directory holds at most 1000 records: a new one every 800 steps; `flow-records check --recursive` reads them all
         (self.root / rec).mkdir(parents=True, exist_ok=True)
@@ -70,12 +70,14 @@ class Flow:
             cmd += ["--stdin-file", stdin_file]
         if max_output:
             cmd += ["--max-output", str(max_output)]
+        if allow_failure:  # `solve run` exits 1 for a search stopped at a limit with an incumbent (status feasible): a result, not a failure
+            cmd += ["--allow-failure"]
         r = subprocess.run(cmd + ["--"] + argv, cwd=self.root, capture_output=True, text=True, timeout=900)
         try:
             doc = json.loads(r.stdout)
         except ValueError:
             sys.exit("pipeline_c: flow printed no JSON for %r: %s" % (argv, r.stderr[-300:]))
-        if not doc.get("ok") or doc["data"]["outcome"]["exit"] != 0:
+        if not doc.get("ok") or (doc["data"]["outcome"]["exit"] != 0 and not allow_failure) or doc["data"]["outcome"]["exit"] is None:
             sys.exit("pipeline_c: step %r failed: %s" % (argv, r.stdout[:600]))
         self.steps += 1
         return doc

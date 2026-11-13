@@ -46,12 +46,12 @@ def run_plan(fl):
     for w, p in cells:
         b = "models/W%d_%s" % (w, p)
         fl.step(ins, [b + ".sol", b + ".json"], ["python3", "build_outreach.py", "--only", "%d:%s" % (w, p), "test_cal.csv", "data_main", "outreach.json", "."])
-        fl.step([b + ".sol"], [], ["solve", "run", "--node-limit", str(NODE_LIMIT)], stdin_file=b + ".sol", stdout_file=b + ".plan.json")
+        fl.step([b + ".sol"], [], ["solve", "run", "--node-limit", str(NODE_LIMIT)], stdin_file=b + ".sol", stdout_file=b + ".plan.json", allow_failure=True)
         fl.step(["verify_input.py", b + ".sol", b + ".plan.json"], [b + ".verify.in"], ["python3", "verify_input.py", b + ".sol", b + ".plan.json", b + ".verify.in"])
         fl.step([], [], ["solve", "verify"], stdin_file=b + ".verify.in", stdout_file=b + ".verify.json")
         o = "oracle/models/W%d_%s" % (w, p)
         fl.step(ins + ["data_main/truth/refill_hazard.csv"], [o + ".sol", o + ".json"], ["python3", "build_outreach.py", "--true-p", "--only", "%d:%s" % (w, p), "test_cal.csv", "data_main", "outreach.json", "oracle"])
-        fl.step([o + ".sol"], [], ["solve", "run", "--node-limit", str(NODE_LIMIT)], stdin_file=o + ".sol", stdout_file=o + ".plan.json")
+        fl.step([o + ".sol"], [], ["solve", "run", "--node-limit", str(NODE_LIMIT)], stdin_file=o + ".sol", stdout_file=o + ".plan.json", allow_failure=True)
     return cells
 
 
