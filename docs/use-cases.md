@@ -213,11 +213,11 @@ the days-to-expiry. All killed, or each survivor explained.
   * **G8:** in each decile of the calibrated probability on the test weeks (at least 1,000 rows each), the observed lapse rate is within 0.05 of the predicted one, or within
     5 binomial standard deviations of it if that is larger. The uncalibrated probabilities are reported against the same bound and are not judged by it.
 * **G5, G6, G9 for the outreach decision (U3b), fixed 2026-11-13 before the decision was built or measured.** The unit is a pharmacy and a test week (78 to 103): the refill events
-  due that week at that pharmacy (about 300), each given at most one of four outreaches (call, reminder, 90-day switch, home delivery) or none. An outreach lowers the lapse
+  due that week at that pharmacy (between 82 and 176 in the twin, **[corrected 2026-11-13: this said about 300; the large size has 20 pharmacies, so 26 test weeks give 520 decisions, not the 208 written here and below]**), each given at most one of four outreaches (call, reminder, 90-day switch, home delivery) or none. An outreach lowers the lapse
   probability of that event by a fraction `u` (`outreach.json`: every number a **choice**, and the twin's own effect is the same number: the planner is *given* the uplift, which is a
   stated limitation, not a finding). The value of an event is its avoided lapse times the days its refill covers; the decision maximises the sum under the pharmacists' minutes, a
   money budget and the home-delivery slots of that pharmacy and week. It uses only the calibrated probability of U3a, never `truth/`.
-  * **G5:** `solve` returns an optimal and `verified` plan on every one of the 208 decisions; HiGHS, given the data and not the model text, gets the same optimum on every one (relative
+  * **G5:** `solve` returns an optimal and `verified` plan on every one of the 520 decisions; HiGHS, given the data and not the model text, gets the same optimum on every one (relative
     gap at most 1e-6); on a toy of five events an enumeration of all 5^5 assignments (written in the gate apart from the builder) gives the same optimum.
   * **G6:** recomputed from the raw files, no plan exceeds the minutes, the money or the slots, none gives an event two outreaches, and each plan's objective is the formula's; a plan
     with an event given two outreaches is refused by `solve verify` with a rule tag, and one over the minutes with another.
@@ -225,7 +225,7 @@ the days-to-expiry. All killed, or each survivor explained.
     the calibrated probabilities is at least 0.90 times the true value of the plan made from the true probabilities (the best that can be done with these constraints), and at
     most 1.0 times it (more would mean the evaluation or the planner has seen the truth); at least 1.25 times the true value of a baseline that gives the
     outreach in the order the events are listed (patient order) until the minutes run out, cheapest outreach first; and the value the plan *expects* (calibrated probability)
-    is within 0.10 of its true value, as a fraction of the true value. In at least half of the 208 decisions at least one of the three limits binds (otherwise the decision is
+    is within 0.10 of its true value, as a fraction of the true value. In at least half of the 520 decisions at least one of the three limits binds (otherwise the decision is
     trivial and says nothing). A margin that fails is reported as failed.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 

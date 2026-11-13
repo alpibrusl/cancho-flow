@@ -49,10 +49,17 @@ def main(argv):
         if not res.success:
             bad.append("%s: HiGHS status %s" % (os.path.basename(jf), res.status))
             continue
-        gap = abs(-res.fun - plan["objective"]) / max(1.0, abs(res.fun))
-        worst, n = max(worst, gap), n + 1
-        if gap > 1e-6:
-            bad.append("%s: HiGHS %.9f, solve %.9f" % (os.path.basename(jf), -res.fun, plan["objective"]))
+        n += 1
+        best = -res.fun
+        if plan.get("status") == "optimal":
+            gap = abs(best - plan["objective"]) / max(1.0, abs(best))
+            worst = max(worst, gap)
+            if gap > 1e-6:
+                bad.append("%s: HiGHS %.9f, solve %.9f" % (os.path.basename(jf), best, plan["objective"]))
+        else:  # the search stopped at a limit: HiGHS's optimum must lie between solve's incumbent and its bound
+            tol = 1e-6 * max(1.0, abs(best))
+            if not (plan["objective"] - tol <= best <= plan["bound"] + tol):
+                bad.append("%s: HiGHS %.9f outside solve's [%.9f, %.9f]" % (os.path.basename(jf), best, plan["objective"], plan["bound"]))
     print(json.dumps({"ok": not bad, "instances": n, "worst_relative_gap": worst, "bad": bad[:5]}))
     return 0 if not bad else 1
 
