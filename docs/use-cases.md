@@ -220,7 +220,7 @@ the days-to-expiry. All killed, or each survivor explained.
   * **G5:** `solve` returns an optimal and `verified` plan on every one of the 520 decisions; HiGHS, given the data and not the model text, gets the same optimum on every one (relative
     gap at most 1e-6); on a toy of five events an enumeration of all 5^5 assignments (written in the gate apart from the builder) gives the same optimum.
   * **G6:** recomputed from the raw files, no plan exceeds the minutes, the money or the slots, none gives an event two outreaches, and each plan's objective is the formula's; a plan
-    with an event given two outreaches is refused by `solve verify` with a rule tag, and one over the minutes with another.
+    with an event given two outreaches is refused by `solve verify` with a rule tag, and so is one over the minutes **[corrected 2026-11-13: this said "with another" tag; both are `solve.row-violated`, which names the row, so the tag does not tell the two apart]**.
   * **G9 (what the decision is worth, judged on the twin's true probabilities, which the twin writes to `truth/` and the planner never reads):** the true value of the plan made from
     the calibrated probabilities is at least 0.90 times the true value of the plan made from the true probabilities (the best that can be done with these constraints), and at
     most 1.0 times it (more would mean the evaluation or the planner has seen the truth); at least 1.25 times the true value of a baseline that gives the
@@ -481,3 +481,32 @@ test metrics and not before; the margins had been committed first and were not t
 **What this does not show:** that a model can find effects it was not built to find (the twin's hazard is additive and every driver is in the model's inputs, so recovering it is the easy
 case); other platforms or seeds; the outreach decision (U3b); real adherence data.
 
+
+### U3b: the outreach decision in `solve`; G5 fails on 8 decisions, G6 and G9 hold (2026-11-13)
+
+*Same machine and conditions as before (4 cores, one run at a time for the control). Code: `build_outreach.py` (the model), `outreach.json` (the economics: every value a choice), `scripts/oracle_highs_b.py`,
+`scripts/plan_b.py`. HiGHS is scipy in a scratch environment (`SCIPY_PYTHON`). The control run is 3,145 recorded `flow` steps and takes about 50 minutes; the margins are those of section 7a, committed
+(`19abceb`) before any of this was built.*
+
+**The decision.** Per pharmacy and test week, the refills due that week (82 to 176 events) each get one of call, reminder, 90-day switch, home delivery, or nothing, to maximise the avoided
+lapse probability times the days the refill covers, under the pharmacist minutes (150), the money (300) and the delivery slots (10). It is a 0-1 program of 4 binaries per event (328 to 704) and
+three knapsack-type rows. It reads only the calibrated probability of U3a and `patients.csv`.
+
+**G5 [measured, FAILS as written].** 520 decisions (64,089 events). `solve verify` accepts every plan; HiGHS, given the data and not the model text, agrees on all 520 (worst relative gap 2.13e-10);
+the toy of five events (3,125 assignments) agrees (14.580000 both). **But 8 of the 520 plans are not proven optimal**: they stop at the 20,000-node limit as `feasible`, with a proven gap of at most
+4.75e-4 of the objective, and HiGHS's optimum lies inside each `[incumbent, bound]`. The margin said "optimal on every one" and it is **reported as failed**, not widened. What is learned: a
+multi-knapsack 0-1 program of this size is not always proved by `solve` in reasonable time (measured on the 1,040 models, the plan ones and the oracle ones, before the limit was set: 2 took longer than 20 s, the
+next 13 s, and `flow` ends a step at its deadline, which is why a node limit is how the search ends). The 8 are plans whose objective is within 0.05 percent of the bound; the oracle-plan cell that also stopped is
+counted in the same run. A feasible exit status of 1 is by design in `solve` (cancho-solve `docs/design.md` section 5); `flow` records it with `--allow-failure`.
+
+**G6 [measured, passes].** Recomputed from the raw files (`test_cal.csv`, `patients.csv`, `outreach.json`): no plan exceeds the minutes, the money or the slots, no event has two outreaches, and every objective
+is the formula's. A plan with an event given two outreaches and a plan with a call for every event are both refused by `solve verify` (exit 2, `solve.row-violated`).
+
+**G9 [measured, passes].** Judged on the twin's true probabilities, over the 520 decisions, in expected adherent days gained: the plan 35,075, the plan made from the true probabilities 35,107 (**0.9991** of it: limits
+0.90 to 1.00), the baseline (reminders in patient order while the minutes last) 12,710 (the plan is **2.76** times it: at least 1.25); the value the plan expects is 34,577, **1.4 percent below** its true value (limit 10).
+All 520 decisions bind at least one limit. **A finding about the margin:** the plan is within 0.1 percent of the best that could be done with these constraints, which says the calibrated probabilities lose almost nothing
+here; it is a statement about this twin, one seed and a choice of uplifts that the planner is **given** (an assumed-known uplift is the limitation of this milestone: a wrong uplift is not tested).
+
+**Added after seeing the run (not margins).** One more G9 check, "the plan differs from the oracle plan in at least one decision" (a planner that read the truth would equal it, and the 1.0 upper limit cannot tell).
+
+**What this does not show:** an uplift that is estimated and not given; interactions between weeks (a patient contacted this week and next); one seed and one size; the real cost of a pharmacist's minute.
