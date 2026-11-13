@@ -496,8 +496,8 @@ three knapsack-type rows. It reads only the calibrated probability of U3a and `p
 the toy of five events (3,125 assignments) agrees (14.580000 both). **But 8 of the 520 plans are not proven optimal**: they stop at the 20,000-node limit as `feasible`, with a proven gap of at most
 4.75e-4 of the objective, and HiGHS's optimum lies inside each `[incumbent, bound]`. The margin said "optimal on every one" and it is **reported as failed**, not widened. What is learned: a
 multi-knapsack 0-1 program of this size is not always proved by `solve` in reasonable time (measured on the 1,040 models, the plan ones and the oracle ones, before the limit was set: 2 took longer than 20 s, the
-next 13 s, and `flow` ends a step at its deadline, which is why a node limit is how the search ends). The 8 are plans whose objective is within 0.05 percent of the bound; the oracle-plan cell that also stopped is
-counted in the same run. A feasible exit status of 1 is by design in `solve` (cancho-solve `docs/design.md` section 5); `flow` records it with `--allow-failure`.
+next 13 s, and `flow` ends a step at its deadline, which is why a node limit is how the search ends). The 8 are plans whose objective is within 0.05 percent of the bound; one oracle-plan decision (measured separately at the same limit, W97_P007) also stops at the limit; the run accepts a stopped oracle plan, so the yardstick of G9 is
+the oracle's incumbent there, a little below the best possible, which flatters the 0.9991 by at most that decision's gap. A feasible exit status of 1 is by design in `solve` (cancho-solve `docs/design.md` section 5); `flow` records it with `--allow-failure`.
 
 **G6 [measured, passes].** Recomputed from the raw files (`test_cal.csv`, `patients.csv`, `outreach.json`): no plan exceeds the minutes, the money or the slots, no event has two outreaches, and every objective
 is the formula's. A plan with an event given two outreaches and a plan with a call for every event are both refused by `solve verify` (exit 2, `solve.row-violated`).
