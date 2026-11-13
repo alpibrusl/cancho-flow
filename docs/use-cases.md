@@ -230,7 +230,7 @@ the days-to-expiry. All killed, or each survivor explained.
 * **G10, the size `solve` can take for A's route selection (U4, open item 5), fixed 2026-11-13 before any routing model was built.** *Choice of model:* the day's deliveries are covered by
   routes picked from a pool that a program generates (every subset of up to 3 deliveries, in the order of their window ends, that meets every time window), each route to be driven by
   one of K = 8 trucks (**[corrected 2026-11-13, before any timing was taken: this said K = 4, which with at most 3 stops a route covers at most 12 deliveries, so D = 14 and 18 were infeasible by arithmetic; one test run of D = 10 on one seed, which answered `infeasible` in 0.04 s, is how this was seen; nothing else was run]**) whose battery must hold the route's energy plus a reserve, each truck at most one route a day, each delivery exactly once, cost = energy price times energy plus a fixed
-  cost per route (stop order is data, as section 4.2 says; `solve` lists "vehicle routing as a dedicated API" as not in scope, cancho-solve `docs/design.md` section 1). The measurement is on random seeded
+  cost per route (stop order is data, as section 4.2 says; `solve` lists "vehicle routing as a dedicated API" as not in scope, cancho-solve `docs/design.md`, the "Not in scope" paragraph at the top). The measurement is on random seeded
   instances from `scripts/route_pool_size.py`, not on the twin: `solve run` with its defaults, wall time (the process, `solve check` included), minimum of 3 runs, the load on the machine written beside the number.
   **Claims, each of which the measurement can refute:** (a) D = 10 deliveries on three seeds: `optimal` in at most 5 s each; (b) D = 14 on three seeds: `optimal` in at most 60 s each; (c) every
   `optimal` objective equals HiGHS's on the same data to 1e-6 relative. **Rule fixed now for what follows:** U4's decision uses the largest D (10, 14 or 18) for which all three seeds pass its bound
@@ -519,3 +519,31 @@ here; it is a statement about this twin, one seed and a choice of uplifts that t
 **Added after seeing the run (not margins).** One more G9 check, "the plan differs from the oracle plan in at least one decision" (a planner that read the truth would equal it, and the 1.0 upper limit cannot tell).
 
 **What this does not show:** an uplift that is estimated and not given; interactions between weeks (a patient contacted this week and next); one seed and one size; the real cost of a pharmacist's minute.
+
+### U4, G10: how large a route-selection model `solve` takes (2026-11-13) **[measured; claims (a) and (b) FAIL]**
+
+*Code: `scripts/route_pool_size.py`; margins G10 of section 7a, committed (`0315c0c`) before any routing model was built. Machine: 4 cores, nothing else running except the measurement itself (load average
+0.23 at the start, about 1.0 during: one `solve` at a time); `solve` as built in cancho-solve at the pin of this repository; minimum of 3 runs; wall time of the process including `solve check`; HiGHS is scipy's `milp`
+and is used here only for the optimum, not for a time.*
+
+**Disclosures.** Two things were seen before the table below, and both are written here and in section 7a. (1) The margin said K = 4 trucks; with at most 3 stops a route that covers at most 12 deliveries, so D = 14 and 18 were
+infeasible by arithmetic; one test run of D = 10 on one seed (`infeasible`, 0.04 s) showed it, and K was corrected to 8 before any timing. (2) With K = 8 my first constants (0.9 kWh/km, 4 kW of refrigeration) left most routes
+fitting no battery, so 8 of 9 instances were `infeasible` (one instance, D = 14 seed 2, was solved: `optimal` in 7.83 s, 8,224 nodes, HiGHS gap 3.7e-9, which I saw); I lowered the constants (0.45 kWh/km, 2 kW),
+which the margins do not mention, and ran the table below once. The instances differ from that first run, so that one timing says nothing about this table.
+
+| D | routes (binaries) | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|---|
+| 10 | 174-175 (1,392-1,400) | feasible, 200,000 nodes, 87.4 s | feasible, 200,000 nodes, 81.1 s | feasible, 200,000 nodes, 93.8 s |
+| 14 | 460-468 (3,680-3,744) | feasible, 200,000 nodes, 165.3 s | feasible, 200,000 nodes, 176.7 s | feasible, 200,000 nodes, 173.8 s |
+| 18 (node limit 20,000) | 976-981 (7,808-7,848) | optimal, 1 node, 0.10 s | optimal, 29 nodes, 0.52 s | optimal, 1 node, 0.10 s |
+
+* **(a) FAILS:** D = 10 is not `optimal` on any seed; each stops at `solve`'s default node limit (200,000 nodes) after 81 to 94 s, against the bound of 5 s.
+* **(b) FAILS:** D = 14 is not `optimal` on any seed either (165 to 177 s at the node limit), against the bound of 60 s.
+* **(c) holds on what was compared:** the three `optimal` objectives (D = 18) equal HiGHS's to at most 3.8e-9 relative. Nothing was compared for the six `feasible` ones.
+
+**What is learned.** The size is not monotone: the models at D = 18 are easy (the pool is large and the 8 trucks of 3 stops leave little slack, so the relaxation is nearly integral), and the ones in the middle are the hard ones. The
+rule fixed in advance ("use the largest D for which every seed passes its bound; if (b) fails, D = 10") **has no answer**: (a) fails as well, and D = 18 had no bound claimed. That is a gap in the rule, not
+a result, and it is not patched here. A likely cause is symmetry: the 8 trucks are 4 batteries twice, so every plan has equal twins; a model over 4 classes of 2 trucks instead of 8 trucks would remove it. That is a different model,
+so it gets its own margins written before it is run (next). Reported to cancho-solve with the earlier model (issue 3, comment).
+
+**What this does not show.** Random instances, not the twin; one pool rule and one set of constants; no time stated against any other solver.
