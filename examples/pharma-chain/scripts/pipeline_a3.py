@@ -20,6 +20,7 @@ import tempfile
 
 sys.dont_write_bytecode = True
 HERE = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "scripts"))
 import pipeline_a as pa  # noqa: E402
 import pipeline_a2 as pa2  # noqa: E402
