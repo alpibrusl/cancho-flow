@@ -409,6 +409,79 @@ def check(tree, fast=False):
                 if r.returncode != 2 or tag != rule or r.stdout or "Traceback" in r.stderr or (work / args[-1]).exists():
                     problems.append("refusal: %s: exit %s, rule %s, wanted exit 2 and %s, and nothing written" % (label, r.returncode, tag, rule))
 
+
+        # coupled (U4d, G1 for the coupling A to C): late and warm weeks recomputed from the delivery files; the arrival rule and the write-off of the stock ledger recomputed from them
+        CP_TABLES = "core,dispensing,refills,delivery,coupled"
+        def gen_cp(wfile, seed, size, out, tables=CP_TABLES):
+            r = run(tree, ["generate", "--world", wfile, "--seed", str(seed), "--size", size, "--tables", tables, "--out", out], work)
+            if r.returncode != 0:
+                return None, r
+            return {f: (work / out / f).read_bytes() for f in FILES + DELIVERY_FILES[:-1] + ("truth/coupling.csv",) if (work / out / f).exists()}, r
+        cp, rcp = gen_cp("world.json", 20261112, "small", "cp1")
+        if cp is None:
+            problems.append("coupled: the coupled tables did not run: %s" % rcp.stderr.strip()[-120:])
+        else:
+            cp2, _ = gen_cp("world.json", 20261112, "small", "cp2")
+            if cp2 is None or cp != cp2:
+                problems.append("coupled: two runs of the same world, seed and size differ")
+            cbad = {}
+            rday = {r_["route"]: int(r_["day"]) for r_ in table(cp["routes.csv"])}
+            late_w, warm_w = set(), set()
+            for r_ in table(cp["telemetry.csv"]):
+                if r_["pharmacy"] == "DEPOT":
+                    continue
+                wk = rday[r_["route"]] // 7
+                if int(r_["arrive_min"]) > int(r_["window_end_min"]):
+                    late_w.add((r_["pharmacy"], wk))
+                if int(r_["cabin_temp_dc"]) > 80:
+                    warm_w.add((r_["pharmacy"], wk))
+            flags_file = {(r_["pharmacy"], int(r_["week"])): (r_["late"] == "1", r_["warm"] == "1") for r_ in table(cp["truth/coupling.csv"])}
+            if any(flags_file[k] != ((k in late_w), (k in warm_w)) for k in flags_file) or {k for k in flags_file if flags_file[k][0]} != late_w or {k for k in flags_file if flags_file[k][1]} != warm_w:
+                cbad["flags"] = "truth/coupling.csv is not the late and warm weeks of the delivery files (%d late, %d warm recomputed)" % (len(late_w), len(warm_w))
+            cold_of = {r_["item"]: r_["cold_chain"] == "1" for r_ in table(cp["items.csv"])}
+            prev_cp = {}
+            held_cp = {}
+            for r_ in table(cp["dispensing.csv"]):
+                key = (r_["pharmacy"], r_["item"])
+                wk = int(r_["week"])
+                rc, wo, ss, se, od = (int(r_[c_]) for c_ in ("received", "written_off", "stock_start", "stock_end", "ordered"))
+                prev_se, prev_od = prev_cp.get(key, (None, 0))
+                arriving = prev_od + held_cp.get(key, 0)
+                late_f, warm_f = flags_file[(r_["pharmacy"], wk)]
+                want_rc = 0 if late_f else arriving
+                held_cp[key] = arriving if late_f else 0
+                if rc != want_rc:
+                    cbad["arrival"] = "%s week %d received %d, the rule gives %d (late %s)" % (key, wk, rc, want_rc, late_f)
+                if prev_se is not None:
+                    if ss != prev_se + rc - wo:
+                        cbad["chain"] = "%s week %d stock_start %d is not last week's stock_end %d plus received %d minus written_off %d" % (key, wk, ss, prev_se, rc, wo)
+                    if warm_f and cold_of[r_["item"]]:
+                        if rc > 0 and wo < rc:
+                            cbad["discard"] = "%s week %d: a warm week received %d of a cold-chain item and wrote off %d" % (key, wk, rc, wo)
+                    elif wo > prev_se:
+                        cbad["discard-extra"] = "%s week %d wrote off %d with %d in stock last week and no warm cold-chain arrival" % (key, wk, wo, prev_se)
+                prev_cp[key] = (se, od)
+            for k, v in cbad.items():
+                problems.append("coupled: %s: %s" % (k, v))
+            # with no delivery at all nothing is late or warm: the coupled dispensing file is the uncoupled one
+            w0c = json.loads(json.dumps(world))
+            w0c["params"]["delivery_prob_ppm"]["value"] = 0
+            (work / "w_cp0.json").write_text(json.dumps(w0c))
+            za, _ = gen_cp("w_cp0.json", 5, "small", "cp_z1")
+            zb, _ = gen_cp("w_cp0.json", 5, "small", "cp_z2", "core,dispensing,refills,delivery")
+            if za is not None and zb is not None and za["dispensing.csv"] != zb["dispensing.csv"]:
+                problems.append("coupled: with no delivery at all the coupled dispensing.csv differs from the uncoupled one")
+            r = run(tree, ["generate", "--world", "world.json", "--seed", "1", "--size", "small", "--tables", "core,coupled", "--out", "rf_cp"], work)
+            err = r.stderr.strip().splitlines()
+            tag = None
+            if len(err) == 1:
+                try:
+                    tag = json.loads(err[0])["error"]["rule"]
+                except (ValueError, KeyError, TypeError):
+                    pass
+            if r.returncode != 2 or tag != "twin.bad-tables" or r.stdout or (work / "rf_cp").exists():
+                problems.append("refusal: coupled-without-the-tables: exit %s, rule %s, wanted exit 2 and twin.bad-tables, and nothing written" % (r.returncode, tag))
+
         # share: the large size, recounted from the CSV
         big, _ = gen(tree, work, "world.json", 20261112, "large", "big", "core")
         if big is not None:
@@ -554,6 +627,13 @@ MUTANTS = [
     ("depot-columns-swapped", "twinlib/delivery.py", '(h, p["depot_cap_kw"][h], p["depot_tariff_milli"][h])', '(h, p["depot_tariff_milli"][h], p["depot_cap_kw"][h])', "delivery"),
     ("door-energy-dropped", "twinlib/delivery.py", "raw = drive_wh + fridge_wh + door_wh", "raw = drive_wh + fridge_wh", "delivery"),
     ("delivery-ignores-the-probability", "twinlib/delivery.py", 'if rd.bernoulli(p["delivery_prob_ppm"]):', "if rd.bernoulli(500000):", "delivery"),
+    ("late-week-ignored", "twinlib/core.py", 'if flags and (phid, week) in flags["late"]:', "if False:", "coupled"),
+    ("warm-week-ignored", "twinlib/core.py", 'discarded = received if (flags and cold and (phid, week) in flags["warm"]) else 0', "discarded = 0", "coupled"),
+    ("warm-discards-every-item", "twinlib/core.py", 'discarded = received if (flags and cold and (phid, week) in flags["warm"]) else 0', 'discarded = received if (flags and (phid, week) in flags["warm"]) else 0', "coupled"),
+    ("held-order-lost", "twinlib/core.py", "c[10] = arriving  # a late delivery", "c[10] = 0  # a late delivery", "coupled"),
+    ("late-includes-the-boundary", "twinlib/delivery.py", "                if arrive > e:\n                    late_weeks.add", "                if arrive >= e:\n                    late_weeks.add", "coupled"),
+    ("warm-flag-in-the-wrong-week", "twinlib/delivery.py", "warm_weeks.add((phid, d // 7))", "warm_weeks.add((phid, d // 7 + 1))", "coupled"),
+    ("coupling-file-columns-swapped", "twinlib/core.py", 'int((ph[0], w) in flags["late"]), int((ph[0], w) in flags["warm"])', 'int((ph[0], w) in flags["warm"]), int((ph[0], w) in flags["late"])', "coupled"),
     ("wrong-generator-constant", "twinlib/prng.py", "0x9E3779B97F4A7C15", "0x9E3779B97F4A7C16", "known-answer"),
 ]
 
