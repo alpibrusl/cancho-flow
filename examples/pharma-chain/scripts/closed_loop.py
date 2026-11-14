@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 
 sys.dont_write_bytecode = True
@@ -45,8 +46,17 @@ def twin_step(fl, seed, through, decided):
     fl.step(ins, ["data/" + f for f in OUTS], ["python3", "twin.py", "generate", "--world", "world_main.json", "--seed", str(seed), "--size", "large", "--tables", FULL, "--through", str(through),
                                                 "--decisions", "decisions", "--out", "data", "--overwrite"])
     mx = max(int(r["week"]) for r in pc.table(fl.read("data/dispensing.csv")))
-    if mx != through:  # a guard of the loop, not a gate: the tools must read the world through the decision week and no further
-        sys.exit("closed_loop: the twin ran through week %d, not %d" % (mx, through))
+    mr = max(int(r["due_week"]) for r in pc.table(fl.read("data/refills.csv")))
+    if mx != through or mr > through:  # a guard of the loop, not a gate: the tools must read the world through the decision week and no further (stock rows and refill events alike)
+        sys.exit("closed_loop: the twin ran through week %d with refills due up to %d, not %d" % (mx, mr, through))
+
+
+def check_records(fl, name):
+    """`flow-records check` on the steps just taken, while the files they name are still what they were: the loop rewrites data/ and the plans' inputs every week, so a record can only be checked in its own week."""
+    r = subprocess.run([fl.records, "check", "--recursive", "--root", ".", fl.rec], cwd=fl.root, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("closed_loop: flow-records check is not clean for %s: %s" % (name, r.stdout[:400]))
+    fl.checked = getattr(fl, "checked", 0) + len(list((fl.root / fl.rec).iterdir()))
 
 
 def prep(fl, seed, arm):
@@ -107,9 +117,12 @@ def run_arm(arm, seed, out, first=90, last=101, end=103):
     for f in ("step.py", "decisions.py", "delivery.py"):
         shutil.copy(HERE / "twinlib" / f, fl.root / "twinlib" / f)
     (fl.root / "decisions").mkdir()
+    fl.rec = "rec/prep"
     prep(fl, seed, arm)
+    check_records(fl, "prep")
     decided = []
     for w in range(first, last + 1):
+        fl.rec = "rec/w%d" % w
         twin_step(fl, seed, w, decided)
         parts = []
         if arm in ("C", "T"):
@@ -120,8 +133,11 @@ def run_arm(arm, seed, out, first=90, last=101, end=103):
             parts.append("b_dec.json")
         fl.step(["plan_decisions.py"] + parts, ["decisions/week-%d.json" % w], ["python3", "plan_decisions.py", "merge", str(w), "decisions/week-%d.json" % w] + parts)
         decided.append(w)
+        check_records(fl, "week %d" % w)
+    fl.rec = "rec/final"
     twin_step(fl, seed, end, decided)
-    (out / "arm.json").write_text(json.dumps({"arm": arm, "seed": seed, "first": first, "last": last, "end": end, "steps": fl.steps, "ms": fl.ms}, sort_keys=True))
+    check_records(fl, "final")
+    (out / "arm.json").write_text(json.dumps({"arm": arm, "seed": seed, "first": first, "last": last, "end": end, "steps": fl.steps, "records_checked": fl.checked, "ms": fl.ms}, sort_keys=True))
     return fl
 
 

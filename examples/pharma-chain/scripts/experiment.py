@@ -173,17 +173,20 @@ def judge(seeds, base, first, last, end):
             problems.append("G21: %s: %d weeks of decisions differ from what their plans say" % (name, mism))
         if leak:
             problems.append("G21: %s: %s" % (name, "; ".join(leak)))
-        # G22 (records) per arm
+        # G22 (records) per arm: the loop checked the records of every week as it went (closed_loop.py, check_records) and stopped at the first that was not clean; here, the count, and a changed byte of the last step's output
+        arm_doc = json.loads((base / name / "arm.json").read_text())
         fr = base / name / "flow-records"
-        r = subprocess.run([str(fr), "check", "--recursive", "--root", ".", "rec"], cwd=str(root), capture_output=True, text=True)
         victim = root / "data" / "dispensing.csv"
         orig = victim.read_bytes()
+        clean = subprocess.run([str(fr), "check", "--recursive", "--root", ".", "rec/final"], cwd=str(root), capture_output=True, text=True)
         victim.write_bytes(orig[:-2] + (b"9\n" if orig[-2:-1] != b"9" else b"8\n"))
-        r2 = subprocess.run([str(fr), "check", "--recursive", "--root", ".", "rec"], cwd=str(root), capture_output=True, text=True)
+        r2 = subprocess.run([str(fr), "check", "--recursive", "--root", ".", "rec/final"], cwd=str(root), capture_output=True, text=True)
         victim.write_bytes(orig)
-        report.append("G22 %s: flow-records check %s on the recorded steps; a changed byte of dispensing.csv: exit %d" % (name, "clean" if r.returncode == 0 else "NOT CLEAN", r2.returncode))
-        if r.returncode != 0:
-            problems.append("G22: %s: flow-records check is not clean: %s" % (name, r.stdout[:200]))
+        report.append("G22 %s: flow-records check clean on all %d records of %d steps (checked in the week of each); the last step's records clean afterwards: %s; a changed byte of dispensing.csv: exit %d" % (name, arm_doc["records_checked"], arm_doc["steps"], clean.returncode == 0, r2.returncode))
+        if arm_doc["records_checked"] != arm_doc["steps"]:
+            problems.append("G22: %s: %d records checked for %d steps" % (name, arm_doc["records_checked"], arm_doc["steps"]))
+        if clean.returncode != 0:
+            problems.append("G22: %s: flow-records check is not clean on the last step: %s" % (name, clean.stdout[:200]))
         if r2.returncode == 0:
             problems.append("G22: %s: a changed byte of a recorded output was not detected" % name)
     t, t2 = base / ("T_%d" % seeds[0]) / "root", base / ("T2_%d" % seeds[0]) / "root"

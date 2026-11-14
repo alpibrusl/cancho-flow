@@ -63,7 +63,7 @@ class Flow:
 
     def step(self, ins, outs, argv, stdout_file=None, stdin_file=None, max_output=None, allow_failure=False):
         outs = list(outs) + ([stdout_file] if stdout_file else [])
-        rec = "rec/%d" % (self.steps // 800)  # a record directory holds at most 1000 records: a new one every 800 steps; `flow-records check --recursive` reads them all
+        rec = getattr(self, "rec", None) or "rec/%d" % (self.steps // 800)  # a record directory holds at most 1000 records: a new one every 800 steps; `flow-records check --recursive` reads them all
         (self.root / rec).mkdir(parents=True, exist_ok=True)
         cmd = [self.flow, "step", "--root", ".", "--record", rec] + (["--in", ",".join(ins)] if ins else []) + (["--out", ",".join(outs)] if outs else [])
         if stdout_file:
