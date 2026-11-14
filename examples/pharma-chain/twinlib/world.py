@@ -75,6 +75,12 @@ DELIVERY_PARAMS = {
 }
 
 
+# the twin's own effect of an outreach, a fraction of the lapse chance removed, in ppm, in the order call, reminder, switch90, delivery (U7); optional, needed only when a decisions file gives outreach
+OUTREACH_PARAMS = {
+    "outreach_uplift_ppm": "uplift4",
+}
+
+
 def _int(x):
     return isinstance(x, int) and not isinstance(x, bool)
 
@@ -94,6 +100,8 @@ def _check_value(name, kind, v):
         ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 51 for x in v)
     elif kind == "bigcount":
         ok = _int(v) and 1 <= v <= 1_000_000
+    elif kind == "uplift4":
+        ok = isinstance(v, list) and len(v) == 4 and all(_int(x) and 0 <= x <= 1_000_000 for x in v)
     elif kind == "week52":
         ok = _int(v) and 0 <= v <= 51
     elif kind == "hourly24":
@@ -133,12 +141,13 @@ def parse(text):
     if not isinstance(params, dict):
         raise TwinError("twin.bad-world", "the world has no params")
     for k in params:
-        if k not in PARAMS and k not in DELIVERY_PARAMS:
-            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS) + sorted(DELIVERY_PARAMS)))
+        if k not in PARAMS and k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS:
+            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS) + sorted(DELIVERY_PARAMS) + sorted(OUTREACH_PARAMS)))
     present = [k for k in DELIVERY_PARAMS if k in params]
     if present and len(present) != len(DELIVERY_PARAMS):
         raise TwinError("twin.missing-param", "the delivery parameters are all or none: %s is missing" % next(k for k in DELIVERY_PARAMS if k not in params), "add every delivery parameter or none")
-    for k, kind in list(PARAMS.items()) + [(k, DELIVERY_PARAMS[k]) for k in present]:
+    present_o = [k for k in OUTREACH_PARAMS if k in params]
+    for k, kind in list(PARAMS.items()) + [(k, DELIVERY_PARAMS[k]) for k in present] + [(k, OUTREACH_PARAMS[k]) for k in present_o]:
         if k not in params:
             raise TwinError("twin.missing-param", "parameter %s is missing" % k, "add %s to the world file" % k)
         e = params[k]

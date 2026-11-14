@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The digital twin of the pharma chain (docs/use-cases.md).
 
-    python3 twin.py generate --world WORLD.json --seed N --size small|large --out DIR [--tables core,dispensing,refills] [--overwrite]
+    python3 twin.py generate --world WORLD.json --seed N --size small|large --out DIR [--tables core,dispensing,refills,delivery,coupled] [--engine batch|step] [--decisions DIR] [--through W] [--overwrite]
 
 Writes items.csv, pharmacies.csv, patients.csv and truth.json into DIR (a relative path beneath the working directory). The same world, seed
 and size give the same bytes. On a refusal: one JSON line on standard error with a rule tag `twin.<name>` and a repair, exit status 2.
@@ -31,7 +31,7 @@ def parse_args(argv):
         if a == "--overwrite":
             opts["overwrite"] = True
             i += 1
-        elif a in ("--world", "--seed", "--size", "--out", "--tables") and i + 1 < len(argv):
+        elif a in ("--world", "--seed", "--size", "--out", "--tables", "--decisions", "--through", "--engine") and i + 1 < len(argv):
             opts[a[2:]] = argv[i + 1]
             i += 2
         else:
@@ -49,6 +49,17 @@ def parse_args(argv):
     if not s.isascii() or not s.isdigit() or len(s) > 18:
         raise TwinError("twin.bad-seed", "the seed is a non-negative integer of at most 18 digits", "use --seed 20261112")
     opts["seed"] = int(s)
+    if "engine" in opts and opts["engine"] not in ("batch", "step"):
+        raise TwinError("twin.bad-engine", "--engine is batch or step", "use --engine step, or leave it out for the batch twin")
+    if "through" in opts:
+        th = opts["through"]
+        if not th.isascii() or not th.isdigit() or len(th) > 6:
+            raise TwinError("twin.bad-through", "--through is a week number, a non-negative integer of at most 6 digits", "use --through 99")
+        opts["through"] = int(th)
+    if "decisions" in opts:
+        dd = opts["decisions"]
+        if not dd or os.path.isabs(dd) or ".." in dd.replace("\\", "/").split("/") or "\x00" in dd:
+            raise TwinError("twin.bad-path", "--decisions must be a relative path with no `..`", "use a directory beneath the working directory")
     out = opts["out"]
     if not out or os.path.isabs(out) or ".." in out.replace("\\", "/").split("/") or "\x00" in out:
         raise TwinError("twin.bad-path", "--out must be a relative path with no `..`", "use a directory beneath the working directory")
@@ -64,7 +75,11 @@ def main(argv):
         except (OSError, UnicodeDecodeError):
             raise TwinError("twin.world-unreadable", "the world file cannot be read", "check the path of --world")
         w = world.parse(text)
-        files, _ = core.generate(w, o["seed"], o["size"], o["tables"])
+        if o.get("engine") == "step" or "decisions" in o or "through" in o:
+            from twinlib import step  # the stepping twin: the same world a week at a time, with the decisions of the tools as input
+            files, _ = step.run(w, o["seed"], o["size"], o["tables"], o.get("decisions"), o.get("through"))
+        else:
+            files, _ = core.generate(w, o["seed"], o["size"], o["tables"])
         if os.path.exists(o["out"]) and (not os.path.isdir(o["out"]) or os.listdir(o["out"])) and not o["overwrite"]:
             raise TwinError("twin.exists", "the output directory exists and is not empty", "use a new directory or add --overwrite")
         os.makedirs(o["out"], exist_ok=True)

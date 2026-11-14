@@ -147,7 +147,7 @@ def refill_series(p, n, patients, items, stockouts, root):
 
 
 def generate(world, seed, size, tables=("core", "dispensing", "refills")):
-    from .world import DELIVERY_PARAMS, TwinError
+    from .world import DELIVERY_PARAMS, OUTREACH_PARAMS, TwinError
     p = {k: v["value"] for k, v in world["params"].items()}
     n = world["sizes"][size]
     root = SplitMix64(seed)
@@ -194,7 +194,7 @@ def generate(world, seed, size, tables=("core", "dispensing", "refills")):
         "seed": seed,
         "size": size,
         "counts": {"items": n["items"], "pharmacies": n["pharmacies"], "patients": n["patients"]},
-        "params": {k: {"value": v["value"], "source": v["source"]} for k, v in world["params"].items() if k not in DELIVERY_PARAMS},
+        "params": {k: {"value": v["value"], "source": v["source"]} for k, v in world["params"].items() if k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS},
         "realised": {
             "cold_chain_items": cold,
             "controlled_items": controlled,

@@ -516,6 +516,16 @@
    ],
    "source": "choice",
    "note": "price per kWh by hour in thousandths of a currency unit; stylised"
+  },
+  "outreach_uplift_ppm": {
+   "value": [
+    250000,
+    80000,
+    300000,
+    200000
+   ],
+   "source": "choice",
+   "note": "the twin's own effect of an outreach: the fraction of the lapse chance removed by a call, a reminder, a switch to a 90-day supply and a home delivery, in ppm; the same numbers as outreach.json (the planner is given them: a stated limitation, docs/use-cases.md U3b)"
   }
  }
 }
