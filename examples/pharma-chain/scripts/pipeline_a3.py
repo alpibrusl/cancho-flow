@@ -222,7 +222,7 @@ def judge_decision(fl):
         nn, len(under), len(over_kw), PM, len(early), len(over_ch), len(cost_bad), len(gap_need)))
     for k, lst in (("need", under), ("power", over_kw), ("arrival", early), ("chargers or connection", over_ch), ("cost", cost_bad)):
         if lst:
-            problems.append("G6: %d plans break the %s rule, e.g. %s" % (len(lst), k, lst[0]))
+            problems.append("G6: %d cases break the %s rule, e.g. %s" % (len(lst), k, lst[0]))
     # tampers
     d0 = days[0]
     base = "models/D%d" % d0

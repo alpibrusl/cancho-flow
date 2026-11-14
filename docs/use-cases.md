@@ -744,3 +744,47 @@ The third and fourth groups are still under-predicted (0.089 against 0.112, 0.10
 | the door information dropped from the excursion model (`door_min` and `minutes` both: the first version of this mutant dropped `door_min` alone and survived because `minutes` carries the door time through the service time) | **survived G4, and it should be said plainly:** the model on the temperature and the position alone has a calibrated log loss of 0.9676 of the constant model's (0.9647 with all four), inside the margin of 0.985. G4 does not test that the door minutes are used; that the doors matter is G2's claim (p = 2.4e-13), not this gate's |
 
 Two further faults of the harness were corrected on the way: the first version of the leak mutant changed nothing (its old and new text were the same) and the harness now takes a list of edits for a two-edit mutant.
+
+### U4c: the charging plan in `solve` and the `opt` calibration (2026-11-14) **[measured, once; every claim holds]**
+
+*Code: `build_charging.py` (the model, from `charging.json`), `scripts/oracle_highs_c.py`, `scripts/oracle_lstsq_a.py`, `features_a3.py`, `objective_a.py`, `scripts/pipeline_a3.py`. The margins and their sizing were committed (`ea68bd4`) before the charging model or the calibration was built. The control run is 758 recorded `flow`
+steps on the large size; `solve` and HiGHS as before, scipy for the two oracles.*
+
+**G5 [holds].** `solve` returned an `optimal` and `verified` plan on all 182 nights (each of 2 to 5 trucks and about 20 hourly slots); HiGHS, given the data and not the model text, agrees on all 182 (worst relative gap **1.1e-11**); on a toy night of two trucks and four slots
+(every pattern of plugged slots tried, the best charge for a pattern found by filling the cheapest slots, written apart from the builder) the enumeration and `solve` both give 2.900000. None of the 182 stopped at a limit: this model is small, unlike the outreach decision of U3b.
+
+**G6 [holds].** Recomputed from the raw files: no truck charged less than its need, none beyond 11 kW in an hour or before it arrived, no hour with more than 4 trucks or over the depot's connection, every plan's cost the formula's, and no truck charged more than its need (the optimum charges exactly what is needed). Two tampers were refused by `solve verify`: a truck given no
+charge (`solve.row-violated`) and a draw of 12 kW (`solve.bound-violated`). **A third tamper, a truck plugged before it arrived, was written and not made:** on the first night all its trucks arrived within the first hour of the window, so there was no unavailable slot to plug into; the gate skips it by construction there and says nothing about it.
+
+**G11 [holds], judged on the energy the routes actually used (669 route-nights):**
+
+| claim | measured | margin |
+|---|---|---|
+| route-nights charged less than was used, plan from the boost's prediction plus 3.0 kWh | 13 of 669: **0.0194** | at most 0.05 (sizing 0.014) |
+| the same share from the distance-only baseline's prediction plus 3.0 kWh | 61 of 669: **0.0912**, 4.7 times the boost plan's | at least 2 times (sizing about 5) |
+| cost of the optimal plan against the plug-in-and-charge-now plan on the same needs | **0.4571** (no night where that plan could not deliver) | at most 0.60 (sizing 0.451 to 0.458) |
+
+**G12 [holds].** `opt minimize` (Nelder-Mead, 413 evaluations, converged) from the first guess 350, 1,200, 150,000 and 1,500, on the 9,958 legs: the sum of squares it reaches is **1,860.882, the exact least-squares minimum to the printed digits** (ratio 1.00000; limit 1.001). Coefficients against the twin's: driving 449.76 against 450 (0.05 percent
+off; limit 2), refrigeration 1,813 W against 1,800 (0.74; limit 3), heat fraction 292,520 ppm against 300,000 (2.49; limit 10), doors 2,940 W against 3,000 (1.99; limit 15). In the control with the heat fraction zero, the calibrated heat fraction is **-5,509 ppm** (limit 25,000). The errors are within 0.7 to 0.5 standard errors of the sizing, as they should be for a correct fit.
+
+**Mutants of `pipeline_a3.py`: 9 of 9 killed.**
+
+| mutant | killed by |
+|---|---|
+| the need row dropped from the model | G6: nothing charged (needs 59.5 kWh, charged 0.0) |
+| the tariff hour off by one | G6: every plan's cost differs from the formula's (21.15 against 17.19 on the first night) |
+| the safety of 3.0 kWh set to zero | G11: 0.4649 of the route-nights short |
+| the need taken from the baseline's prediction | G11: 0.0912 short, no better than the baseline |
+| the need wrong by 1 kWh in the model text only | G5: HiGHS (on the data) differs from `solve` (on the text), gap 0.041 |
+| the chargers row dropped | G6: 72 hours with 5 trucks charging on 4 chargers: the charger limit does bind |
+| the door term dropped from the objective of the calibration | G12: sum of squares 1,996 against 1,861 |
+| `opt` stopped at 40 evaluations | G12: 3,951 against 1,861 |
+| the control not zeroed | G12: the control's heat fraction is 299,904 ppm |
+
+Two faults of the harness came up on the first run and were corrected: a mutant of the need row made a plan that charges nothing, which crashed the gate's own tamper step (`StopIteration`, no G6 line was printed; the step now falls back to slot 0), and the text of one mutant did not match the file. **No mutant of the grid-connection row was written:** it cannot bind in this twin (4 chargers of 11 kW is 44 kW, the lowest connection is 60 kW), so such a mutant would be equivalent, and the gate recomputes
+the connection anyway.
+
+**Notes on the tools.** `opt` starts its objective by path, not by searching `PATH` (`python3 script.py` after `--` is `opt.objective-failed`, "could not be started"); the objective is an executable script with an `env python3` shebang, started as `./objective_a.py`, which keeps every absolute path out of the `flow` records. The least-squares oracle is exact because the model is linear in the coefficients after a change of
+variables, so `opt` is held against a closed form here.
+
+**What this does not show.** One seed and one size, the nights of the last 182 days; the needs are the predicted energy plus a safety, with no battery-state model and no look at the next day's route; an uplift or a tariff that are choices; the safety of 3.0 kWh was fixed from the residual sizing of the energy model, and a different value changes the shortfall share; and the cost comparison is with one simple alternative.
