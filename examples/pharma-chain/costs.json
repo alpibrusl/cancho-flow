@@ -1,0 +1,11 @@
+{
+  "schema": "plan.costs.v1",
+  "note": "The economics of the replenishment decision. Every value is a stylised choice of the example, not read from a pharmacy (docs/use-cases.md section 4.1).",
+  "z_milli": {"value": 1280, "source": "choice", "note": "service target: the forecast plus 1.28 standard deviations (about 90 percent) where a standard deviation is sqrt(forecast), a Poisson-like noise assumed, not fitted"},
+  "penalty_per_unit_short": {"value": 10, "source": "choice", "note": "cost of a unit short of the target"},
+  "penalty_per_unit_short_critical": {"value": 30, "source": "choice", "note": "the same for an item whose absence costs more"},
+  "waste_per_unit": {"value": 2, "source": "choice", "note": "cost of a unit held beyond what the shelf life can sell at the forecast rate (an expiry proxy: lots are not shown to the planner)"},
+  "holding_per_unit": {"value": 0.05, "source": "choice", "note": "cost of a unit ordered"},
+  "max_packs": {"value": 6, "source": "choice", "note": "packs of one item in one order"},
+  "controlled_max_packs": {"value": 2, "source": "choice", "note": "packs of a controlled item in one order"}
+}
