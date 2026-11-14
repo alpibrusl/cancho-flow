@@ -856,3 +856,27 @@ delivery have 65 stockout items in week 100 and 137 in week 101, the other 16 ph
 Two faults of the harness came up on the first run of the mutants and were corrected: the outreach mutant crashed the gate's own recomputation (`KeyError`, it counted the events of later weeks) before G16 printed anything, and the clock mutant's run stopped because a `flow` step hit its deadline when six processes shared 4 cores; each was rerun alone.
 
 **What this does not show.** The loop is closed in the data and **open in the decisions**: the plans do not change the twin's world (the twin is generated whole beforehand), so a replenishment order that is better than the pharmacy's own does not reduce next week's stockouts here. One week, one seed, one machine; reproducible bytes on this machine are not reproducible bytes on another platform (U6); and nothing about the loop's numbers is a claim of quality.
+
+### U6: the measured run (2026-11-14) **[measured on one machine; M1 to M4 as fixed]**
+
+*Code: `scripts/loop_measure.py`; the timing is taken outside the records (`Flow.ms`, wall time around each `flow step`, which includes flow's own hashing of the declared files). The margins M1 to M4 (and the list of what may not be claimed) were committed (`251c321`) before the script existed. One run of the script, the machine idle: the Linux x86-64 virtual machine of this work, **Intel Xeon Processor @ 2.10 GHz, 4 cores, kernel 6.18.44, a cloud VM so the host is shared and not controlled**;
+`ml --threads` at its default of 1; the load average at the start of the five runs was 0.00, 0.28, 0.28, 0.29 and 0.29 (the script waits for it to fall under 0.3; one run starts at 0.00 and the rest at the limit, so they are not at zero).*
+
+| run | load at start | steps (wall) | summary sha256 (prefix) |
+|---|---|---|---|
+| 1 | 0.00 | 85.9 s | a701f5de6ac65856 |
+| 2 | 0.28 | 83.0 s | a701f5de6ac65856 |
+| 3 | 0.28 | 85.5 s | a701f5de6ac65856 |
+| 4 | 0.29 | 81.3 s | a701f5de6ac65856 |
+| 5 | 0.29 | 80.5 s | a701f5de6ac65856 |
+| 6, `--threads 4` on every `ml fit` | 0.29 | 79.2 s | a701f5de6ac65856 |
+
+* **M1 [holds as a figure, not noisy]:** the 218 steps of one loop take **80.5 s at the minimum of five runs** (median 83.0 s, maximum 85.9 s; maximum over minimum 1.07, under the 1.25 at which the figure would have been called noisy). The whole process takes 137 to 146 s because it also judges (HiGHS, the recomputations); the judging is not part of the figure.
+* **M2 [holds]:** the five digests are equal and equal to U5's `a701f5de6ac65856`: the loop has not drifted since U5, in three more runs than U5 had.
+* **M3 [holds]:** with `--threads 4` on every `ml fit` the summary is byte for byte the same as at 1 thread, here through the whole chain; the documented claim of `ml` held on this loop. The run's 79.2 s is **not a speed claim**: it is one run, 1.3 s under the minimum of five, inside the noise.
+* **M4 [stated for this machine only], the fastest run, 80.5 s:** by stage, the twin 16.1 s, C 38.1 s, B 20.8 s, A 4.5 s, the summary 1.0 s; by program, **`python3` 63.1 s (79 percent), `ml` 11.0 s (14 percent), `solve` 4.8 s (6 percent), `table` 1.5 s (2 percent)** of the sum of the steps.
+
+**What the shares say, and do not.** Four fifths of the loop's time is the example's own Python programs (the twin 16 s, the feature builders, the 47 model builders and the verification joins, each a process that starts a Python interpreter), not the tools under test: the fits are 14 percent and all 47 `solve` runs together 6 percent (4.8 s). That is a statement about this loop's composition on this machine; it is not a statement about the speed of `ml`,
+`solve` or Python, and no other tool or library was measured here. The 38 s of stage C is mostly the 20 replenishment decisions' four processes each plus the forecast's features.
+
+**Not claimed, as fixed in advance:** any speed against another tool or library; any scaling beyond this size and week; any statement about another machine, another operating system or another number of cores (**macOS and aarch64 were not run**: the digest on those platforms is unknown, and equality there needs a machine or a CI job that this repository does not have); that the loop's numbers are good (U2 to U4 judged the stages); and that two machines would give 80.5 s.
