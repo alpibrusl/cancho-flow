@@ -217,7 +217,7 @@ BREAKS = {
     "wrong figure": lambda p: re.sub(r'(data-n="fixtures">)\d+', r"\g<1>99", p, count=1),
     "missing local file": lambda p: p.replace('href="assets/site.css"', 'href="assets/gone.css"', 1),
     "tab without panel": lambda p: p.replace('aria-controls="screen-stale"', 'aria-controls="screen-none"', 1),
-    "whole hash in a panel": lambda p: p.replace("62994be4a983…", "0" * 64, 1),
+    "whole hash in a panel": lambda p: re.sub(r"[0-9a-f]{12}…", "0" * 64, p, count=1),  # the first shown id, whatever it is
     "a timing shown": lambda p: p.replace("# exit status 5", '"milliseconds":12', 1),
     "oversize page": lambda p: p + "<!--" + "x" * 40000 + "-->",
 }

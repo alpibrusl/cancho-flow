@@ -14,15 +14,17 @@
 ## Commands
 
 ```
+flow run [--root DIR] --record DIR [--max-steps N] [--dry-run] [--resume NAME] [--max-stdin N] [--timeout-ms N] [--max-output N] [--format json|text] PLAN
 flow step [--root DIR] --record DIR [--in P,P] [--out P,P] [--stdin | --stdin-file P] [--stdout-file P] [--max-stdin N] [--deterministic] [--allow-failure] [--answer-output] [--timeout-ms N] [--max-output N] [--format json|text] -- PROGRAM [ARG...]
-flow-records list|show|check [--root DIR] [--format json|text] DIR [ID[.OID]]
+flow-records list|show|check [--root DIR] [--format json|text] DIR [ID[.OID] | PLANID.plan]
+flow-records check --recursive [--root DIR] [--format json|text] DIR
 ```
 
 Answers are one JSON line, schema `flow.v1`: `{ok, command, schema, data, error, errors, meta}`. Match on `error.rule`, never on `message`.
 
 ## Authority (derived by the compiler)
 
-- `flow`: args, child_signal, clock, dir_read, dir_write, err_write, exec("/private/tmp/claude-502/-Users-alfonso-Workspace-alpibrusl-cancho/5a2dcce3-cc39-4ce8-ad9e-d92d3ec7ef84/scratchpad/sib/flow-m3/build/site/programs"), file_read, file_write, fs_read, heap, io_read, io_write, pipe_read, pipe_write, poll
+- `flow`: args, child_signal, clock, dir_read, dir_write, err_write, exec("<the programs directory>"), file_read, file_write, fs_read, heap, io_read, io_write, pipe_read, pipe_write, poll
 - `flow-records`: args, dir_read, err_write, file_read, fs_read, heap, io_write
 - `flow-records` has no `exec`, no `clock` and no write: scripts/manifest.py fails it otherwise.
 
@@ -36,10 +38,20 @@ Answers are one JSON line, schema `flow.v1`: `{ok, command, schema, data, error,
 - `args.unknown-flag` (exit 2): a flag that is not in the tool's table
 - `flow.args.not-utf8` (exit 2): an argument, a declared path or the program name is not UTF-8, and a record holds only text
 - `flow.args.too-many` (exit 2): more arguments than a record may hold
+- `flow.check.directory` (exit 5): a directory of the tree checked with --recursive holds a record that does not check (the errors above it say which)
 - `flow.check.inputs-changed` (exit 5): a declared input is not what the record names (changed, or gone)
 - `flow.check.outputs-changed` (exit 5): a declared output is not what the record names (changed, or gone)
+- `flow.check.plan-changed` (exit 5): the plan file is not the one a plan record names
+- `flow.check.plan-inconsistent` (exit 5): a plan record and the step record it names disagree about the step's exit
 - `flow.check.program-changed` (exit 5): the program's file is not the one the record names
 - `flow.files.too-many` (exit 2): more declared files than a record may hold
+- `flow.plan.duplicate-id` (exit 2): two steps of the plan have one id
+- `flow.plan.empty` (exit 2): the plan holds no step
+- `flow.plan.order` (exit 2): `after` or `when` names a step that is not an earlier step of the plan
+- `flow.plan.output-collision` (exit 2): two steps declare one output and their conditions are not the exclusive pair `exit N` and `exit_not N` of one step
+- `flow.plan.resume` (exit 2): --resume names a plan record that is damaged, is of another plan, or did not stop
+- `flow.plan.syntax` (exit 2): a line of the plan is not one step the plan format reads (not a JSON object, an unknown or repeated member, a value of the wrong type, an id that is not 1 to 64 of letters, digits, `_` and `-`, a zero byte in an argument, a comma or nothing in a path, an exit status outside 0 to 255)
+- `flow.plan.too-many-steps` (exit 2): the plan holds more steps than --max-steps
 - `flow.program-name` (exit 2): the program is not one plain name (it is empty, `.`, `..` or has a `/`)
 - `flow.program-not-found` (exit 3): the programs directory holds no program of that name
 - `flow.record.ambiguous` (exit 5): the id has more than one record (one per outcome)

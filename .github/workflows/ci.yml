@@ -74,12 +74,9 @@ jobs:
         with:
           python-version: "3.14"
 
-      # scripts/check.sh: `cancho install` (the pinned contract modules), both programs, the authority check (G8), the gates G1 to G17 and G10, every mutant
-      # (each must be killed), the checks of the landing page and its contrast. SKIP_SITE_CHECK leaves out `scripts/site.py --check` alone: the replayed output of
-      # the page and docs/agents.md are the maintainer's platform's (BSD `uniq -c` spacing, an absolute path), so the comparison is only true where the page was generated.
+      # scripts/check.sh: `cancho install` (the pinned contract modules), both programs, the authority check (G8), the gates G1 to G17 and G10, every mutant (each must be killed),
+      # `site.py --check` (the landing page's replayed output and figures are what the built programs print) and the checks of the landing page and its contrast.
       # The standard input is closed on purpose: no gate may depend on the runner's.
       - name: The gate (scripts/check.sh)
         working-directory: flow
-        env:
-          SKIP_SITE_CHECK: "1"
         run: time sh scripts/check.sh < /dev/null
