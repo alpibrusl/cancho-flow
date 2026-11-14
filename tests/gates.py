@@ -24,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def run(binary, args, cwd, stdin=None, raw=False):
-    p = subprocess.run([binary] + args, cwd=cwd, input=stdin, capture_output=True)
+    p = subprocess.run([binary] + args, cwd=cwd, input=stdin if stdin is not None else b"", capture_output=True)  # an explicit empty standard input: a child must not inherit the harness's (a mutant that reads it would block on an open pipe)
     try:
         doc = json.loads(p.stdout.decode()) if p.stdout and not raw else None
     except ValueError:
@@ -296,7 +296,7 @@ def g3_refusals():
     # every tag the two programs register, flow.* and limit.*, has a fixture; no fixture raises a tag outside the registered ones
     registered = set()
     for binary in (FLOW, RECORDS):
-        rules = json.loads(subprocess.run([binary, "introspect"], capture_output=True).stdout)["rules"]
+        rules = json.loads(subprocess.run([binary, "introspect"], capture_output=True, stdin=subprocess.DEVNULL).stdout)["rules"]
         names = [r["rule"] for r in rules]
         registered |= set(names)
     for tag in sorted(registered):
@@ -679,7 +679,7 @@ def g16_plan_fuzz():
         for n in range(900):
             mutant = mutate(base) if n else base
             (w.d / "p.plan").write_bytes(mutant)
-            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--dry-run", "p.plan"], cwd=w.d, capture_output=True, timeout=30)
+            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--dry-run", "p.plan"], cwd=w.d, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
             must(p.returncode >= 0, "plan mutant %d died of signal %d: %r" % (n, -p.returncode, mutant[:200]))
             try:
                 doc = json.loads(p.stdout.decode())
@@ -704,7 +704,7 @@ def g16_plan_fuzz():
                 damaged = bytearray(original)
                 damaged[pos] = value
                 (w.d / "records" / "damaged.plan.json").write_bytes(bytes(damaged))
-                p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, timeout=30)
+                p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
                 must(p.returncode >= 0, "a record damaged at byte %d died of signal %d" % (pos, -p.returncode))
                 doc2 = json.loads(p.stdout.decode())
                 must("flow.plan.resume" in rules_of(doc2), "a record damaged at byte %d was accepted: %s" % (pos, rules_of(doc2)))
@@ -713,12 +713,12 @@ def g16_plan_fuzz():
             pass
         for tail in (b" ", b"\t", b"\r"):
             (w.d / "records" / "damaged.plan.json").write_bytes(original[:-1] + tail)
-            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, timeout=30)
+            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
             must("flow.plan.resume" in rules_of(json.loads(p.stdout.decode())), "a record ending in %r instead of a newline was accepted" % tail)
             cases += 1
         for extra in (b"x", b"\n", b" \n"):
             (w.d / "records" / "damaged.plan.json").write_bytes(original + extra)
-            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, timeout=30)
+            p = subprocess.run([FLOW, "run", "--root", ".", "--record", "records", "--resume", "damaged.plan.json", "p.plan"], cwd=w.d, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
             must("flow.plan.resume" in rules_of(json.loads(p.stdout.decode())), "a record with %r after it was accepted" % extra)
             cases += 1
         for f in os.listdir(w.d / "records"):
