@@ -27,9 +27,18 @@ def figures_from_sources():
     m = re.search(r"\*\*([\d,]+) cases, all refused as `flow.record.damaged`", design)
     gates = (ROOT / "tests" / "gates.py").read_text()
     mut = (ROOT / "scripts" / "mutants.py").read_text()
+    uc = (ROOT / "docs" / "use-cases.md").read_text()
+    m_steps = re.search(r"(\d+) recorded `flow` steps: the large, coupled twin", uc)
+    m_secs = re.search(r"take \*\*([\d.]+) s at the minimum of five runs\*\*", uc)
+    m_py = re.search(r"`python3` [\d.]+ s \((\d+) percent\)", uc)
+    twin = (ROOT / "examples" / "pharma-chain" / "scripts" / "check_twin.py").read_text()
+    block = twin.split("MUTANTS = [", 1)[1].split("\n]\n", 1)[0] if "MUTANTS = [" in twin else ""
+    uc_figs = {"uc_steps": m_steps.group(1) if m_steps else "?", "uc_seconds": m_secs.group(1) if m_secs else "?", "uc_python": m_py.group(1) if m_py else "?",
+               "uc_twin_mutants": str(len(re.findall(r'^    \("', block, re.M)))}
     figs = {"damaged": m.group(1) if m else "?",
             "fixtures": str(sum(1 for l in gates.splitlines() if l.startswith('    f["'))),
             "mutants": str(sum(1 for l in mut.splitlines() if l.startswith("    (")))}
+    figs.update(uc_figs)
     return figs
 
 

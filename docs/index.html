@@ -216,6 +216,12 @@ python3 scripts/flow_build.py --programs /opt/agent/programs --out build/flow-re
   <p class="fine">Then run the commands above, with your own programs in the directory. <code>scripts/check.sh</code> runs the authority check, the gates and every mutant.</p>
 </div></section>
 
+<section class="sec" id="usecase"><div class="wrap">
+  <h2>Used on a chain of tools</h2>
+  <p class="lead">A pharma supply chain on cancho's tools: a digital twin, a forecast, three decisions in a solver and a calibration, and a week of all of it as one command. Its <span data-n="uc_steps">218</span> recorded steps and its summary come out byte for byte the same in two independent runs; one loop is <span data-n="uc_seconds">80.5</span> seconds of steps on one 4-core Linux machine, <span data-n="uc_python">79</span> percent of it the example's own Python; <span data-n="uc_twin_mutants">40</span> deliberate faults of the twin are caught by its gate.</p>
+  <p class="fine">Every margin was written before the measurement it judges, and several failed first: a bound that could not be met at that size, a model that overfitted, a routing model the solver could not prove, an outreach plan it did not always prove. Each is reported as failed, with its number, in <a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/use-cases.md">docs/use-cases.md</a>. Linux x86-64 only; the plans do not change the twin's world.</p>
+</div></section>
+
 <section class="sec" id="docs"><div class="wrap">
   <h2>Go deeper</h2>
   <ul class="chips pills"><li><a href="https://github.com/alpibrusl/cancho-flow/blob/main/docs/design.md">Design</a></li><li><a href="https://github.com/alpibrusl/cancho-flow/blob/main/README.md">README</a></li><li><a href="https://github.com/alpibrusl/cancho-flow">Repository</a></li></ul>

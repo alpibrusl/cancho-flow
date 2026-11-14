@@ -228,8 +228,18 @@ def figures(bindir, extra):
         d = introspect(bindir, which)
         rules |= {r["rule"] for r in d["rules"]}
         labels[which] = len(d["authority"]["labels"])
-    return {"damaged": m.group(1), "fixtures": str(len(re.findall(r'^    f\["', gates, re.M))), "mutants": str(len(re.findall(r"^    \(", mut, re.M))),
+    uc = (ROOT / "docs" / "use-cases.md").read_text()
+    m_steps = re.search(r"(\d+) recorded `flow` steps: the large, coupled twin", uc)
+    m_secs = re.search(r"take \*\*([\d.]+) s at the minimum of five runs\*\*", uc)
+    m_py = re.search(r"`python3` [\d.]+ s \((\d+) percent\)", uc)
+    twin = (ROOT / "examples" / "pharma-chain" / "scripts" / "check_twin.py").read_text()
+    block = twin.split("MUTANTS = [", 1)[1].split("\n]\n", 1)[0] if "MUTANTS = [" in twin else ""
+    uc_figs = {"uc_steps": m_steps.group(1) if m_steps else "?", "uc_seconds": m_secs.group(1) if m_secs else "?", "uc_python": m_py.group(1) if m_py else "?",
+               "uc_twin_mutants": str(len(re.findall(r'^    \("', block, re.M)))}
+    figs = {"damaged": m.group(1), "fixtures": str(len(re.findall(r'^    f\["', gates, re.M))), "mutants": str(len(re.findall(r"^    \(", mut, re.M))),
             "rules": str(len(rules)), "labels_flow": str(labels["flow"]), "labels_records": str(labels["flow-records"])}
+    figs.update(uc_figs)
+    return figs
 
 
 def set_figures(html, figs):
