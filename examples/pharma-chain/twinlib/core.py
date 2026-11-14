@@ -32,24 +32,30 @@ def mean_milli(base_milli, scale_ppm, seas_ppm):
     return max(1, base_milli * scale_ppm // 1_000_000 * seas_ppm // 1_000_000)
 
 
-def simulate(p, n, items, pharmacies, root, flags=None):
-    """Weekly sales at every pharmacy for every item, under a plain order-up-to policy. Demand is drawn week by week in a fixed order and does not depend on the
-    stock, so two policies see the same demand; the sales are the demand cut at the stock on hand (the censoring), and the stock has lots that expire.
-    Returns (dispensing rows, true-demand rows, the counts the truth records)."""
-    rd = root.fork("demand")
-    rb = root.fork("base_rates")
-    base = [[rb.categorical(p["item_base_rate_milli"]) for _ in items] for _ in pharmacies]
-    gi = {it[0]: GROUPS.index(it[6]) for it in items}
-    cells = []  # per (pharmacy, item): [lots, pending, sold history, base milli, group, pack, shelf weeks]
-    for pi, ph in enumerate(pharmacies):
-        for ii, it in enumerate(items):
-            b = base[pi][ii]
-            shelf_weeks = it[1] // 7
-            m0 = mean_milli(b, ph[4], 1_000_000)
-            cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0], 0, it[2]])
-    disp, truth, sold_out, wasted, sold_total, demand_total = [], [], 0, 0, 0, 0
-    for week in range(n["weeks"]):
-        for c in cells:
+class StockSim:
+    """Weekly sales at every pharmacy for every item, under a plain order-up-to policy, one week at a time. Demand is drawn week by week in a fixed order and does not depend on the
+    stock, so two policies see the same demand; the sales are the demand cut at the stock on hand (the censoring), and the stock has lots that expire. `step(week, orders)` runs one
+    week: `orders`, if given, is {(pharmacy, item): units} and replaces the order-up-to rule for those cells at the end of the week (U7)."""
+
+    def __init__(self, p, n, items, pharmacies, root, flags=None):
+        self.p, self.n, self.flags = p, n, flags
+        self.rd = root.fork("demand")
+        rb = root.fork("base_rates")
+        base = [[rb.categorical(p["item_base_rate_milli"]) for _ in items] for _ in pharmacies]
+        gi = {it[0]: GROUPS.index(it[6]) for it in items}
+        self.cells = []  # per (pharmacy, item): [lots, pending, sold history, base milli, group, pack, shelf weeks, scale, pharmacy, item, held, cold]
+        for pi, ph in enumerate(pharmacies):
+            for ii, it in enumerate(items):
+                b = base[pi][ii]
+                shelf_weeks = it[1] // 7
+                m0 = mean_milli(b, ph[4], 1_000_000)
+                self.cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0], 0, it[2]])
+        self.disp, self.truth = [], []
+        self.sold_out = self.wasted = self.sold_total = self.demand_total = 0
+
+    def step(self, week, orders=None):
+        p, flags, rd = self.p, self.flags, self.rd
+        for c in self.cells:
             lots, pending, hist, b, g, pack, shelf_weeks, scale, phid, itid, held, cold = c
             arriving = pending + held
             c[10] = 0
@@ -86,14 +92,26 @@ def simulate(p, n, items, pharmacies, root, flags=None):
             target = -(-p["order_cover_ppm"] * sum(recent) // (1_000_000 * len(recent)))
             want = max(0, target - stock_end)
             ordered = -(-want // pack) * pack if want else 0
+            if orders is not None and (phid, itid) in orders:
+                ordered = orders[(phid, itid)]
             c[1] = ordered
-            disp.append((phid, itid, week, stock_start, received, written_off, sold, int(demand > stock_start), stock_end, ordered))
-            truth.append((phid, itid, week, demand, mean_milli(b, scale, seas)))
-            sold_out += demand > stock_start
-            wasted += written_off
-            sold_total += sold
-            demand_total += demand
-    return disp, truth, {"stockout_cells": sold_out, "written_off_units": wasted, "units_sold": sold_total, "units_demanded": demand_total}
+            self.disp.append((phid, itid, week, stock_start, received, written_off, sold, int(demand > stock_start), stock_end, ordered))
+            self.truth.append((phid, itid, week, demand, mean_milli(b, scale, seas)))
+            self.sold_out += demand > stock_start
+            self.wasted += written_off
+            self.sold_total += sold
+            self.demand_total += demand
+
+    def counts(self):
+        return {"stockout_cells": self.sold_out, "written_off_units": self.wasted, "units_sold": self.sold_total, "units_demanded": self.demand_total}
+
+
+def simulate(p, n, items, pharmacies, root, flags=None):
+    """The whole horizon at once: the batch twin. Returns (dispensing rows, true-demand rows, the counts the truth records)."""
+    sim = StockSim(p, n, items, pharmacies, root, flags)
+    for week in range(n["weeks"]):
+        sim.step(week)
+    return sim.disp, sim.truth, sim.counts()
 
 
 def refill_series(p, n, patients, items, stockouts, root):

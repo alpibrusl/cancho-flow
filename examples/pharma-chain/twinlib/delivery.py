@@ -10,33 +10,40 @@ DAY_START_MIN = 7 * 60
 SPEED_UNITS = 60  # minutes per hour
 
 
-def generate(p, n, pharmacies, root):
-    """Returns ({file name: text}, realised counts)."""
-    days = n["weeks"] * 7
-    n_trucks = max(2, n["pharmacies"] // 2)
-    rt = root.fork("trucks")
-    trucks = [("T%02d" % (i + 1), rt.categorical(p["truck_battery_kwh"])) for i in range(n_trucks)]
-    rl = root.fork("locations")
-    grid = p["grid_km"]
-    loc = {ph[0]: (rl.below(grid + 1), rl.below(grid + 1)) for ph in pharmacies}
-    rw = root.fork("temperature")
-    temps = []
-    for d in range(days):
-        wk = d // 7
-        dist = abs(wk % 52 - p["warm_peak_week"])
-        dist = min(dist, 52 - dist)
-        temps.append(p["temp_mean_c"] + p["temp_amplitude_c"] * (26 - 2 * dist) // 26 + rw.normal_micro() * p["temp_noise_c"] // 1_000_000)
-    rd = root.fork("deliveries")
-    rr = root.fork("routing")
-    rn = root.fork("noise")
-    rx = root.fork("excursions")
-    deliveries, routes, tele, parts, exc, day_rows = [], [], [], [], [], []
-    late_weeks, warm_weeks = set(), set()
-    realised = {"deliveries": 0, "routes": 0, "stops": 0, "excursions": 0, "late_stops": 0, "energy_violations": 0}
-    rid = 0
-    for d in range(days):
-        T = temps[d]
-        day_rows.append((d, T))
+class DeliveryWorld:
+    """The deliveries, one day at a time. `day(d, available)` runs day d: `available`, if given, is {truck: kWh} and a route whose truck holds less than the energy the route actually uses ends short:
+    the stops after the point where the energy runs out are not delivered (they are written in `short`, and their pharmacy-week counts as late) (U7). Without it every route is driven."""
+
+    def __init__(self, p, n, pharmacies, root):
+        self.p, self.n, self.pharmacies = p, n, pharmacies
+        self.days = n["weeks"] * 7
+        n_trucks = max(2, n["pharmacies"] // 2)
+        rt = root.fork("trucks")
+        self.trucks = [("T%02d" % (i + 1), rt.categorical(p["truck_battery_kwh"])) for i in range(n_trucks)]
+        rl = root.fork("locations")
+        grid = p["grid_km"]
+        self.loc = {ph[0]: (rl.below(grid + 1), rl.below(grid + 1)) for ph in pharmacies}
+        rw = root.fork("temperature")
+        self.temps = []
+        for d in range(self.days):
+            wk = d // 7
+            dist = abs(wk % 52 - p["warm_peak_week"])
+            dist = min(dist, 52 - dist)
+            self.temps.append(p["temp_mean_c"] + p["temp_amplitude_c"] * (26 - 2 * dist) // 26 + rw.normal_micro() * p["temp_noise_c"] // 1_000_000)
+        self.rd = root.fork("deliveries")
+        self.rr = root.fork("routing")
+        self.rn = root.fork("noise")
+        self.rx = root.fork("excursions")
+        self.deliveries, self.routes, self.tele, self.parts, self.exc, self.day_rows, self.short = [], [], [], [], [], [], []
+        self.late_weeks, self.warm_weeks = set(), set()
+        self.realised = {"deliveries": 0, "routes": 0, "stops": 0, "excursions": 0, "late_stops": 0, "energy_violations": 0}
+        self.rid = 0
+
+    def day(self, d, available=None):
+        p, pharmacies, loc, trucks = self.p, self.pharmacies, self.loc, self.trucks
+        rd, rr, rn, rx, realised = self.rd, self.rr, self.rn, self.rx, self.realised
+        T = self.temps[d]
+        self.day_rows.append((d, T))
         todays = []
         for ph in pharmacies:
             if rd.bernoulli(p["delivery_prob_ppm"]):
@@ -44,7 +51,7 @@ def generate(p, n, pharmacies, root):
                 todays.append((start + 120, start, ph[0]))
         todays.sort()
         for e, s, phid in todays:
-            deliveries.append((d, phid, s, e))
+            self.deliveries.append((d, phid, s, e))
         realised["deliveries"] += len(todays)
         built = []
         for i in range(0, len(todays), MAX_STOPS):
@@ -77,9 +84,9 @@ def generate(p, n, pharmacies, root):
                 x, y = px, py
                 realised["late_stops"] += int(arrive > e)
                 if arrive > e:
-                    late_weeks.add((phid, d // 7))
+                    self.late_weeks.add((phid, d // 7))
                 if ex:
-                    warm_weeks.add((phid, d // 7))
+                    self.warm_weeks.add((phid, d // 7))
             # the return to the depot, with the refrigeration still running
             km = x + y
             travel = km * SPEED_UNITS // p["speed_kmh"]
@@ -96,28 +103,45 @@ def generate(p, n, pharmacies, root):
         free = sorted(range(len(trucks)), key=lambda k: (-trucks[k][1], k))
         for k, ti in zip(order, free):
             energy, km, rows = built[k]
-            rid += 1
-            name = "R%06d" % rid
+            self.rid += 1
+            name = "R%06d" % self.rid
             tr = trucks[ti]
-            routes.append((name, d, tr[0], len(rows) - 1, km, energy, DAY_START_MIN, T))
+            self.routes.append((name, d, tr[0], len(rows) - 1, km, energy, DAY_START_MIN, T))
             realised["energy_violations"] += int(energy > (tr[1] - p["reserve_kwh"]) * 1000)
+            if available is not None and tr[0] in available and energy > available[tr[0]] * 1000:
+                used = 0  # the stops the energy reaches are delivered, the others are not
+                for r in rows[:-1]:
+                    used += r[7]
+                    if used > available[tr[0]] * 1000:
+                        self.short.append((name, r[0]))
+                        self.late_weeks.add((r[1], d // 7))
             for r in rows:
-                tele.append((name, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]))
-                parts.append((name, r[0], r[9], r[10], r[11]))
-                exc.append((name, r[0], r[12], r[13]))
+                self.tele.append((name, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]))
+                self.parts.append((name, r[0], r[9], r[10], r[11]))
+                self.exc.append((name, r[0], r[12], r[13]))
                 realised["excursions"] += r[13]
             realised["stops"] += len(rows) - 1
             realised["routes"] += 1
         assert len(built) <= len(trucks), "more routes in a day than trucks"
-    files = {
-        "trucks.csv": _csv(("truck", "battery_kwh"), trucks),
-        "locations.csv": _csv(("pharmacy", "x_km", "y_km"), [(k, v[0], v[1]) for k, v in sorted(loc.items())]),
-        "days.csv": _csv(("day", "outside_temp_c"), day_rows),
-        "deliveries.csv": _csv(("day", "pharmacy", "window_start_min", "window_end_min"), deliveries),
-        "routes.csv": _csv(("route", "day", "truck", "stops", "distance_km", "energy_wh", "depart_min", "outside_temp_c"), routes),
-        "telemetry.csv": _csv(("route", "seq", "pharmacy", "km", "arrive_min", "window_end_min", "door_open_min", "cabin_temp_dc", "energy_wh", "minutes"), tele),
-        "depot.csv": _csv(("hour", "cap_kw", "tariff_milli"), [(h, p["depot_cap_kw"][h], p["depot_tariff_milli"][h]) for h in range(24)]),
-        "truth/energy_parts.csv": _csv(("route", "seq", "drive_wh", "fridge_wh", "door_wh"), parts),  # the analysis never reads this file; the gates do
-        "truth/excursion.csv": _csv(("route", "seq", "true_ppm", "excursion"), exc),  # the analysis never reads this file; the gates do
-    }
-    return files, realised, {"late": late_weeks, "warm": warm_weeks}
+
+    def files(self):
+        p, loc = self.p, self.loc
+        return {
+            "trucks.csv": _csv(("truck", "battery_kwh"), self.trucks),
+            "locations.csv": _csv(("pharmacy", "x_km", "y_km"), [(k, v[0], v[1]) for k, v in sorted(loc.items())]),
+            "days.csv": _csv(("day", "outside_temp_c"), self.day_rows),
+            "deliveries.csv": _csv(("day", "pharmacy", "window_start_min", "window_end_min"), self.deliveries),
+            "routes.csv": _csv(("route", "day", "truck", "stops", "distance_km", "energy_wh", "depart_min", "outside_temp_c"), self.routes),
+            "telemetry.csv": _csv(("route", "seq", "pharmacy", "km", "arrive_min", "window_end_min", "door_open_min", "cabin_temp_dc", "energy_wh", "minutes"), self.tele),
+            "depot.csv": _csv(("hour", "cap_kw", "tariff_milli"), [(h, p["depot_cap_kw"][h], p["depot_tariff_milli"][h]) for h in range(24)]),
+            "truth/energy_parts.csv": _csv(("route", "seq", "drive_wh", "fridge_wh", "door_wh"), self.parts),  # the analysis never reads this file; the gates do
+            "truth/excursion.csv": _csv(("route", "seq", "true_ppm", "excursion"), self.exc),  # the analysis never reads this file; the gates do
+        }
+
+
+def generate(p, n, pharmacies, root):
+    """The whole horizon at once: the batch twin. Returns ({file name: text}, realised counts, {"late": weeks, "warm": weeks})."""
+    w = DeliveryWorld(p, n, pharmacies, root)
+    for d in range(w.days):
+        w.day(d)
+    return w.files(), w.realised, {"late": w.late_weeks, "warm": w.warm_weeks}
