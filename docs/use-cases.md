@@ -650,3 +650,22 @@ margin is not moved, and no stronger coefficient has been tried**. The refrigera
 pharmacies (a size change), with a power calculation in the margin this time.
 
 **Not run.** The mutants of `pipeline_a.py` (5 are written) were not run: they need a control whose G2 passes, and this one fails on the heat effect, so their "killed by a G2 line" would mean nothing. They run once G2 is settled.
+
+### U4a, G2c: the heat effect at 0.15 per 10 degrees (2026-11-14) **[measured; holds]**
+
+*The margin G2c of section 7a (and its power calculation: non-centrality 138 against 10.6) was committed (`75de184`) before the world file was changed or anything was run; the change was the maintainer's choice (option 2 above). `excursion_per_10c_ppm`
+went from 40,000 to 150,000 in `world.json`; nothing else changed. One run of `scripts/pipeline_a.py` on the large size, the earlier G2 claims judged again in it.*
+
+| effect | in the twin | in the control | |
+|---|---|---|---|
+| heat: excursion against the temperature band | **p = 9.3e-23** | p = 0.148 | holds (margin p < 1e-6; control p >= 1e-3) |
+| doors: excursion against the door-open band | p = 2.4e-13 | p = 0.331 | holds (it was 2e-21 before: the larger heat term adds noise to the door comparison, 713 excursions instead of 557) |
+| refrigeration: energy per minute, hot against cool days | p = 5.6e-7; hot minus cool 8.88 Wh per minute | p = 0.210 | holds, **still by a factor of 1.8 only** (this effect was not changed) |
+
+G7 on the 20 recorded steps is clean and detects a changed byte; the twin has 713 excursions in 7,295 stops, 186 late stops and no route beyond its battery. G1 passes again on the changed world file (it recomputes every probability from it).
+
+**Mutants of `pipeline_a.py`: 5 of 5 killed**, each by a G2 line: the twin ignoring the temperature in the refrigeration (p = 0.21, hot minus cool 2.2), ignoring the doors in the excursion (p = 0.33), ignoring the heat in the excursion (p = 0.148), a control that does not zero its term
+(an effect found in it, p = 3.2e-7), and the temperature test pointed at the door band (killed by the control line: the door effect is in the temperature control, p = 3e-21; the main run passes it by testing the wrong column, which is why a control matters). Two of the five failed to run as written on the first try, both faults of the harness (the text of one
+no longer matched the file after an edit; the replacement of another broke the syntax) and were corrected and rerun alone.
+
+**What this does not show.** The 0.15 is a stated choice, 3.75 times the first one, chosen so that the test could see it; the excursion rate on hot days it implies (about 18 percent) is not read from any fleet. The refrigeration margin is still thin.

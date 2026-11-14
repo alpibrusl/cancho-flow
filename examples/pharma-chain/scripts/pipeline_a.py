@@ -104,8 +104,8 @@ def _x(*parts):
 MUTANTS = [
     ("twin-ignores-the-temperature-in-the-fridge", "twinlib/delivery.py", _x('fridge_wh = p["fridge_w"] * elapsed * ', 'fridge_ppm // (1_000_000 * 60)'), 'fridge_wh = p["fridge_w"] * elapsed * 1_000_000 // (1_000_000 * 60)', "G2"),
     ("twin-ignores-the-doors-in-the-excursion", "twinlib/delivery.py", _x('p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door', ' + p'), 'p["excursion_base_ppm"] + p', "G2"),
-    ("twin-ignores-the-heat-in-the-excursion", "twinlib/delivery.py", _x('prob = min(1_000_000, p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door + p["excursion_per_10c_ppm"] * ', 'max(0, T - 20) // 10)'), 'prob = min(1_000_000, p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door + 0 * ', "G2"),
-    ("control-not-zeroed", "scripts/pipeline_a.py", _x('(("fridge0", "fridge_temp', '_ppm"),'), '(("fridge0", "noise_ppm"),', "G2"),
+    ("twin-ignores-the-heat-in-the-excursion", "twinlib/delivery.py", _x('prob = min(1_000_000, p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door + p["excursion_per_10c_ppm"] * ', 'max(0, T - 20) // 10)'), 'prob = min(1_000_000, p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door + 0 * max(0, T - 20) // 10)', "G2"),
+    ("control-not-zeroed", "scripts/pipeline_a.py", _x('("fridge0", "fridge_temp', '_ppm")'), '("fridge0", "noise_ppm")', "G2"),
     ("wrong-column-for-the-temperature-band", "scripts/pipeline_a.py", _x('"--cols", "excursion", "--vs", "temp', '_band", "stops_%s.csv" % tag]'), '"--cols", "excursion", "--vs", "door_band", "stops_%s.csv" % tag]', "G2"),
 ]
 
