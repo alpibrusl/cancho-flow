@@ -249,11 +249,11 @@ MUTANTS = [
     ("outreach-has-no-effect", "twinlib/step.py", _x('                if key in acts:\n                    chance = ', 'chance * (1_000_000 - uplift[acts[key]]) // 1_000_000'), '                if False:\n                    chance = chance', "G19"),
     ("charges-ignored", "twinlib/delivery.py", _x('            if available is not None and tr[0] in available and energy > ', 'available[tr[0]] * 1000:'), '            if False and energy > available[tr[0]] * 1000:', "G19"),
     ("decisions-of-the-same-week-for-outreach", "twinlib/step.py", _x('            acts = dec[W - 1]["outreach"] if (W - 1) in dec ', 'else {}'), '            acts = dec[W]["outreach"] if W in dec else {}', "G19"),
-    ("entry-order-matters", "twinlib/decisions.py", _x('            res["orders"][(ph, it)] = ', 'u'), '            res["orders"][(ph, it)] = u + len(res["orders"]) * 0 + (1 if (ph, it) == next(iter(res["orders"]), None) else 0)', "G20"),
+    ("entry-order-matters", "twinlib/decisions.py", _x('            res["orders"][(ph, it)] = ', 'u\n'), '            res["orders"][(ph, it)] = u + (pack if not res["orders"] else 0)\n', "G20"),
 ]
 
 
-def mutants():
+def mutants(only=()):
     base = check(HERE, quick=True)
     if base:
         print("control FAILED (the unmodified twin is refused):")
@@ -263,6 +263,8 @@ def mutants():
     print("control passes (quick)")
     survived = 0
     for name, rel, old, new, want in MUTANTS:
+        if only and name not in only:
+            continue
         with tempfile.TemporaryDirectory() as td:
             tree = pathlib.Path(td) / "t"
             shutil.copytree(HERE, tree, ignore=shutil.ignore_patterns("__pycache__", "scripts", "*.pyc"))
@@ -286,7 +288,7 @@ def mutants():
 
 def main():
     if "--mutants" in sys.argv:
-        return mutants()
+        return mutants(tuple(a for a in sys.argv[sys.argv.index("--mutants") + 1:] if not a.startswith("--")))
     problems = check(HERE)
     for p in problems:
         print("check_step: " + p)
