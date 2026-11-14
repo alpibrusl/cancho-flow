@@ -3,7 +3,7 @@
 
     CANCHO=<compiler> python3 scripts/pipeline_a2.py [--mutants] [--mutant NAME] [--keep DIR]
 
-The large size, the twin as it is. Route energy: a boost against a linear fit on the distance alone, fit on days before 546, tested from 546. Excursion of a stop: a boost, calibrated by `ml isotonic`,
+The large size, the twin as it is. Route energy: a boost against a linear fit on the distance alone, fit on days before 546, tested from 546. Excursion of a stop: a logistic model (G4b; a boost failed G4 in the first run), calibrated by `ml isotonic`,
 fit before day 364, calibrated on 364 to 545, tested from 546. Every step is a recorded `flow` step.
 """
 import json
@@ -24,6 +24,7 @@ import pipeline_c as pc  # noqa: E402
 # --- the margins of docs/use-cases.md section 7a (G4 and G8 for A), fixed before the models were built ---
 E_IMPROVE = 0.80        # boost MAE at most this times the distance-only baseline's, on the same test routes
 E_FLOOR = 0.95          # and at least this times the noise floor (a model that knew the parts of every stop)
+X_MODEL = "logistic"   # G4b: the excursion model is logistic (it was a boost in the first run, which failed G4: section 10)
 X_IMPROVE = 0.985       # calibrated log loss at most this times the constant model's
 X_FLOOR = 0.97          # and at least this times the log loss of the true probabilities
 G8_ABS, G8_SD, G8_GROUPS = 0.05, 5.0, 5
@@ -56,7 +57,7 @@ def run_steps(fl):
     fl.step(["stops.csv"], ["cal_x.csv"], tb + ["cal_x.csv", "--where", "day:int >= %d and day:int < %d" % (FIT_X, CAL_X), "stops.csv"])
     fl.step(["stops.csv"], ["test_x.csv"], tb + ["test_x.csv", "--where", "day:int >= %d" % TEST_FROM, "stops.csv"])
     fl.step(["fit_x.csv"], ["m_const.ml"], ["ml", "--root", ".", "--model", "constant", "--target", LABEL, "--drop", X_DROP, "--output", "m_const.ml", "fit", "fit_x.csv"], stdout_file="fit_const.json")
-    fl.step(["fit_x.csv"], ["m_xboost.ml"], ["ml", "--root", ".", "--model", "boost", "--task", "classification", "--positive", "1", "--target", LABEL, "--drop", X_DROP, "--output", "m_xboost.ml", "fit", "fit_x.csv"],
+    fl.step(["fit_x.csv"], ["m_xboost.ml"], ["ml", "--root", ".", "--model", X_MODEL, "--task", "classification", "--positive", "1", "--target", LABEL, "--drop", X_DROP, "--output", "m_xboost.ml", "fit", "fit_x.csv"],
             stdout_file="fit_xboost.json")
     for part in ("cal", "test"):
         fl.step(["m_xboost.ml", part + "_x.csv"], [], ["ml", "--root", ".", "--model-file", "m_xboost.ml", "--drop", X_DROP, "--proba", "--limit", "1000000", "predict", part + "_x.csv"],
@@ -125,8 +126,8 @@ def judge(fl):
     ll_raw = logloss([(int(r[LABEL]), float(r["p_raw"])) for r in T(fl.read("test_cal.csv"))])
     ll_const = logloss([(y, base_rate) for _, y, *_ in test])
     ll_true = logloss([(y, truth[(ro, se)]) for _, y, ro, se in test])
-    report.append("G4 excursion, %d test stops: log loss: constant %.5f, boost uncalibrated %.5f, boost calibrated %.5f, the true probabilities %.5f" % (len(test), ll_const, ll_raw, ll_cal, ll_true))
-    report.append("G4 calibrated boost: %.4f of the constant model's log loss (limit %.3f), %.4f of the true probabilities' (lower limit %.2f)" % (ll_cal / ll_const, X_IMPROVE, ll_cal / ll_true, X_FLOOR))
+    report.append("G4 excursion, %d test stops: log loss: constant %.5f, model uncalibrated %.5f, model calibrated %.5f, the true probabilities %.5f" % (len(test), ll_const, ll_raw, ll_cal, ll_true))
+    report.append("G4 calibrated model: %.4f of the constant model's log loss (limit %.3f), %.4f of the true probabilities' (lower limit %.2f)" % (ll_cal / ll_const, X_IMPROVE, ll_cal / ll_true, X_FLOOR))
     if ll_cal > X_IMPROVE * ll_const:
         problems.append("G4: the calibrated boost's log loss %.5f is not at most %.3f times the constant model's %.5f" % (ll_cal, X_IMPROVE, ll_const))
     if ll_cal < X_FLOOR * ll_true:
