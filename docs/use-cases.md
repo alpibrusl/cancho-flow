@@ -555,3 +555,26 @@ a result, and it is not patched here. A likely cause is symmetry: the 8 trucks a
 so it gets its own margins written before it is run (next). Reported to cancho-solve with the earlier model (issue 3, comment).
 
 **What this does not show.** Random instances, not the twin; one pool rule and one set of constants; no time stated against any other solver.
+
+### U4, G10b: the same selection with the trucks aggregated into classes (2026-11-14) **[measured; claims (a') and (b') FAIL]**
+
+*Same code (`scripts/route_pool_size.py --classes`), instances, constants and machine as G10; the machine was idle apart from the one `solve` (load average 0.00 at the start, about 1.0 during), so the times are not
+upper bounds on anything. The margins G10b of section 7a were committed (`9addfe9`) before the aggregated model was written or run.*
+
+| D | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| 10 | optimal, 139,901 nodes, 27.1 s | optimal, 104,284 nodes, 21.6 s | optimal, 97,579 nodes, 19.1 s |
+| 14 | feasible, 200,000 nodes, 92.2 s | feasible, 200,000 nodes, 77.5 s | feasible, 200,000 nodes, 90.9 s |
+| 18 (node limit 20,000) | optimal, 1 node, 0.08 s | optimal, 13 nodes, 0.20 s | optimal, 1 node, 0.07 s |
+
+* **(a') FAILS:** D = 10 is `optimal` on all three seeds, in 19 to 27 s, against the bound of 5 s.
+* **(b') FAILS:** D = 14 is not `optimal` on any seed (the 200,000-node limit, 78 to 92 s), against the bound of 60 s.
+* **(c') holds:** the six `optimal` objectives equal HiGHS's on the same model to at most 3.8e-9 relative.
+* **(d) holds on what was printed:** the three D = 18 objectives (235.9249, 237.8226, 237.0281) are the ones of the 8-truck model to the four decimals printed (a difference below 2e-7 relative; I did not print more digits).
+
+**What the rule says, and what the numbers say.** By the rule fixed in advance, a miss on (a') or (b') means the symmetry explanation is **not supported** at the bounds, and U4's decision keeps route selection and stop order out of
+`solve`: the twin gives the routes as data and `solve` does the charging plan under the depot cap only. That is what U4 will do. The numbers carry a nuance that the rule did not ask for: aggregation turned the three unproved D = 10
+runs into proved optima, and cut the time at D = 14 from 165 to 177 s to 78 to 92 s at the same node limit, so the twin trucks were part of the difficulty; the remainder is not explained, and no further model was tried.
+
+**What this does not show.** Random instances, one pool rule, one set of constants, one machine; no time against any other solver; and that a model with another structure (a flow formulation, a column-generation loop in a program with
+`solve` as the master) would not do better. Reported in cancho-solve issue 3 (comment).
