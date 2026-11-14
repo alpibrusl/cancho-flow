@@ -542,6 +542,24 @@ here; it is a statement about this twin, one seed and a choice of uplifts that t
 
 **What this does not show:** an uplift that is estimated and not given; interactions between weeks (a patient contacted this week and next); one seed and one size; the real cost of a pharmacist's minute.
 
+### U3b, mutants of the outreach decision (2026-11-14) **[measured; 6 of 6 killed, one by a gate other than the one aimed at]**
+
+*Run on every 9th decision (58 of the 520: `PLAN_B_STRIDE=9`), because a full run takes about 50 minutes and the container that ran them was restarted several times and killed the full runs; the control with the same stride passes G6 and G9 (plan/oracle 0.9990, plan/baseline 2.78,
+all 58 decisions bind a limit) and fails G5 on 4 plans that stopped at the node limit, as the full run does on 8.*
+
+| mutant | killed by |
+|---|---|
+| the one-outreach row dropped from the model | G6: 1,648 events given two outreaches |
+| the minutes row dropped | G6: minutes 378 against 150 |
+| the delivery-slots row dropped | G6: 49 slots against 10 |
+| a wrong uplift in the model text only | G6: the objective is not the formula's (32.88 against 61.73) |
+| the planner reads the true probabilities | G9: the plan equals the oracle plan in every decision (the check added after the full run) |
+| the planner uses the uncalibrated probability | **G6 (objective), not G9, which I aimed at** |
+
+**The last one is a finding about G9.** With the raw probability from the boost instead of the calibrated one, the true value of the plan is 0.9995 of the oracle plan's (0.9990 with the calibrated one): calibration did not change the decisions, because isotonic calibration is monotone, the boost was already
+calibrated, and a constrained decision uses the ranking. G9 cannot tell calibrated from uncalibrated here; what catches the mutant is G6, which recomputes each plan's objective from the calibrated file. That is stated, not hidden: the decision's value is insensitive to calibration at this size; the
+calibration matters for the *expected* value (the planner's own estimate: 1.4 to 1.9 percent below the true value in both runs), not for the choice.
+
 ### U4, G10: how large a route-selection model `solve` takes (2026-11-13) **[measured; claims (a) and (b) FAIL]**
 
 *Code: `scripts/route_pool_size.py`; margins G10 of section 7a, committed (`0315c0c`) before any routing model was built. Machine: 4 cores, nothing else running except the measurement itself (load average

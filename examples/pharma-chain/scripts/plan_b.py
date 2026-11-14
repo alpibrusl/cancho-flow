@@ -266,7 +266,9 @@ MUTANTS = [
     ("slots-row-dropped", "build_outreach.py", _x('t += "    slots: sum e in 0..n: xd[e] <= %d', ';\\n" % d["cap_slots"]'), 't += ""', "G6"),
     ("uplift-wrong-in-the-model-text", "build_outreach.py", _x('g = [[d["days"][e] * d["p"][e] * d["upl', 'ift"][k] for e'), 'g = [[d["days"][e] * d["p"][e] * 0.2 for e', "G6"),
     ("planner-reads-the-truth", "build_outreach.py", _x("only, true_p = None, ", "False"), "only, true_p = None, True", "G9"),
-    ("planner-uses-the-uncalibrated-p", "build_outreach.py", _x('float(r["', 'p"])'), 'float(r["p_raw"])', "G9"),
+    # aimed at G9 and not caught by it (measured: the plan is 0.9995 of the oracle plan with the uncalibrated p, 0.9990 with the calibrated one: isotonic calibration is monotone and the boost was already calibrated, so the
+    # ranking, which is all the constrained decision uses, hardly changes). G6 does catch it, because it recomputes each objective from the calibrated file; the gate named here is the one that does.
+    ("planner-uses-the-uncalibrated-p", "build_outreach.py", _x('float(r["', 'p"])'), 'float(r["p_raw"])', "G6"),
 ]
 
 
