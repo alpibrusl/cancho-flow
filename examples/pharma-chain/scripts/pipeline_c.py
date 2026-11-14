@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 HERE = pathlib.Path(__file__).resolve().parent.parent  # examples/pharma-chain
@@ -58,6 +59,7 @@ class Flow:
         for f in ("twin.py", "features.py", "world.json"):
             shutil.copy(HERE / f, self.root / f)
         self.steps = 0
+        self.ms = {}  # wall time of the steps by program, in milliseconds (measured around `flow step`, so it includes flow's own hashing); outside the records, which hold no time
 
     def step(self, ins, outs, argv, stdout_file=None, stdin_file=None, max_output=None, allow_failure=False):
         outs = list(outs) + ([stdout_file] if stdout_file else [])
@@ -72,7 +74,9 @@ class Flow:
             cmd += ["--max-output", str(max_output)]
         if allow_failure:  # `solve run` exits 1 for a search stopped at a limit with an incumbent (status feasible): a result, not a failure
             cmd += ["--allow-failure"]
+        t0 = time.time()
         r = subprocess.run(cmd + ["--"] + argv, cwd=self.root, capture_output=True, text=True, timeout=900)
+        self.ms[argv[0]] = self.ms.get(argv[0], 0.0) + (time.time() - t0) * 1000.0
         try:
             doc = json.loads(r.stdout)
         except ValueError:

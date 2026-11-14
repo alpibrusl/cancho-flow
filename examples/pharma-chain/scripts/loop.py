@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 HERE = pathlib.Path(__file__).resolve().parent.parent
@@ -33,6 +34,13 @@ NODE_LIMIT = "20000"
 OUTS = ["items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv", "truth/refill_hazard.csv", "trucks.csv", "locations.csv", "days.csv", "deliveries.csv",
         "routes.csv", "telemetry.csv", "depot.csv", "truth/energy_parts.csv", "truth/excursion.csv", "truth/coupling.csv"]
 HELPERS = ("features_b.py", "features_a2.py", "pred_join.py", "apply_isotonic.py", "pred_routes.py", "build_models.py", "build_outreach.py", "build_charging.py", "verify_input.py", "costs.json", "outreach.json", "charging.json", "loop_summary.py")
+THREADS = os.environ.get("LOOP_ML_THREADS")  # U6: every `ml fit` with --threads N (default: the tool's own, 1)
+
+
+def thr():
+    return ["--threads", THREADS] if THREADS else []
+
+
 TB = ["table", "--root", ".", "--format", "csv", "--limit", "1000000", "--out"]
 
 
@@ -43,15 +51,23 @@ def solve_chain(fl, base):
 
 
 def run_steps(fl):
+    fl.stage = {}
+    mark = [time.time()]
+
+    def done(name):
+        now = time.time()
+        fl.stage[name] = now - mark[0]
+        mark[0] = now
     pa.world(fl, "main", None)
     fl.step(pa.TWIN + ["world_main.json"], ["data/" + f for f in OUTS],
             ["python3", "twin.py", "generate", "--world", "world_main.json", "--seed", str(SEED), "--size", "large", "--tables", "core,dispensing,refills,delivery,coupled", "--out", "data"])
+    done("twin")
     # ---- C: the forecast and the replenishment decisions of the week ----
     fl.step(["features.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv"], ["c_feat.csv"], ["python3", "features.py", "data", "c_feat.csv"])
     fl.step(["c_feat.csv"], ["c_train.csv"], TB + ["c_train.csv", "--where", "week:int >= %d and week:int < %d" % (C_FIT_FROM, WEEK), "c_feat.csv"])
     fl.step(["c_feat.csv"], ["c_test.csv"], TB + ["c_test.csv", "--where", "week:int = %d" % WEEK, "c_feat.csv"])
     drop = "pharmacy,item,week"
-    fl.step(["c_train.csv"], ["c_model.ml"], ["ml", "--root", ".", "--model", "boost", "--cat", "group,season", "--step", "encode column=group,season kind=onehot", "--target", "units", "--drop", drop, "--output", "c_model.ml", "fit", "c_train.csv"],
+    fl.step(["c_train.csv"], ["c_model.ml"], ["ml", "--root", ".", "--model", "boost", "--cat", "group,season", "--step", "encode column=group,season kind=onehot", "--target", "units", "--drop", drop, "--output", "c_model.ml", "fit", "c_train.csv"] + thr(),
             stdout_file="c_fit.json")
     fl.step(["c_model.ml", "c_test.csv"], [], ["ml", "--root", ".", "--model-file", "c_model.ml", "--drop", drop, "--limit", "6000", "predict", "c_test.csv"], stdout_file="c_pred.json")
     phs = sorted({r["pharmacy"] for r in pc.table(fl.read("c_test.csv"))})
@@ -61,12 +77,13 @@ def run_steps(fl):
                 ["python3", "build_models.py", "--only", "%d:%s" % (WEEK, ph), "data", "c_test.csv", "c_pred.json", "costs.json", "c"])
         solve_chain(fl, b)
     fl.step(["loop_summary.py"] + ["c/models/W%d_%s.%s" % (WEEK, ph, e) for ph in phs for e in ("json", "plan.json")], ["c_summary.json"], ["python3", "loop_summary.py", "c", str(WEEK), ".", "c_summary.json"])
+    done("C")
     # ---- B: the lapse model and the outreach decisions of the week ----
     fl.step(["features_b.py", "data/refills.csv", "data/patients.csv"], ["b_events.csv"], ["python3", "features_b.py", "data", "b_events.csv"])
     fl.step(["b_events.csv"], ["b_fit.csv"], TB + ["b_fit.csv", "--where", "due_week:int < %d" % B_FIT_BEFORE, "b_events.csv"])
     fl.step(["b_events.csv"], ["b_cal.csv"], TB + ["b_cal.csv", "--where", "due_week:int >= %d and due_week:int < %d" % (B_FIT_BEFORE, WEEK), "b_events.csv"])
     fl.step(["b_events.csv"], ["b_test.csv"], TB + ["b_test.csv", "--where", "due_week:int = %d" % WEEK, "b_events.csv"])
-    fl.step(["b_fit.csv"], ["b_model.ml"], ["ml", "--root", ".", "--model", "boost", "--task", "classification", "--positive", "1", "--target", "lapsed", "--drop", pb.DROP, "--output", "b_model.ml", "fit", "b_fit.csv"], stdout_file="b_fit.json")
+    fl.step(["b_fit.csv"], ["b_model.ml"], ["ml", "--root", ".", "--model", "boost", "--task", "classification", "--positive", "1", "--target", "lapsed", "--drop", pb.DROP, "--output", "b_model.ml", "fit", "b_fit.csv"] + thr(), stdout_file="b_fit.json")
     for part in ("cal", "test"):
         fl.step(["b_model.ml", "b_%s.csv" % part], [], ["ml", "--root", ".", "--model-file", "b_model.ml", "--drop", pb.DROP, "--proba", "--limit", "1000000", "predict", "b_%s.csv" % part], stdout_file="b_pred_%s.json" % part, max_output=33554432)
         fl.step(["pred_join.py", "b_%s.csv" % part, "b_pred_%s.json" % part], ["b_pred_%s.csv" % part], ["python3", "pred_join.py", "b_%s.csv" % part, "b_pred_%s.json" % part, "b_pred_%s.csv" % part])
@@ -79,12 +96,13 @@ def run_steps(fl):
         fl.step(["build_outreach.py", "b_test_cal.csv", "data/patients.csv", "outreach.json"], [b + ".sol", b + ".json"], ["python3", "build_outreach.py", "--only", "%d:%s" % (WEEK, ph), "b_test_cal.csv", "data", "outreach.json", "b"])
         solve_chain(fl, b)
     fl.step(["loop_summary.py"] + ["b/models/W%d_%s.%s" % (WEEK, ph, e) for ph in bphs for e in ("json", "plan.json")], ["b_summary.json"], ["python3", "loop_summary.py", "b", str(WEEK), ".", "b_summary.json"])
+    done("B")
     # ---- A: the route-energy model and the charging plan of each night ----
     fl.step(["features_a2.py", "data/routes.csv", "data/telemetry.csv"], ["a_routes.csv"], ["python3", "features_a2.py", "data", "a_routes.csv"])
     fl.step(["a_routes.csv"], ["a_fit.csv"], TB + ["a_fit.csv", "--where", "day:int < %d" % DAY0, "a_routes.csv"])
     fl.step(["a_routes.csv"], ["a_test.csv"], TB + ["a_test.csv", "--where", "day:int >= %d and day:int <= %d" % (DAY0, DAY1), "a_routes.csv"])
-    fl.step(["a_fit.csv"], ["a_base.ml"], ["ml", "--root", ".", "--model", "linear", "--target", "energy_wh", "--drop", "route,day,stops,temp_c,span_min", "--output", "a_base.ml", "fit", "a_fit.csv"], stdout_file="a_fit_base.json")
-    fl.step(["a_fit.csv"], ["a_boost.ml"], ["ml", "--root", ".", "--model", "boost", "--target", "energy_wh", "--drop", "route,day", "--output", "a_boost.ml", "fit", "a_fit.csv"], stdout_file="a_fit_boost.json")
+    fl.step(["a_fit.csv"], ["a_base.ml"], ["ml", "--root", ".", "--model", "linear", "--target", "energy_wh", "--drop", "route,day,stops,temp_c,span_min", "--output", "a_base.ml", "fit", "a_fit.csv"] + thr(), stdout_file="a_fit_base.json")
+    fl.step(["a_fit.csv"], ["a_boost.ml"], ["ml", "--root", ".", "--model", "boost", "--target", "energy_wh", "--drop", "route,day", "--output", "a_boost.ml", "fit", "a_fit.csv"] + thr(), stdout_file="a_fit_boost.json")
     fl.step(["a_boost.ml", "a_test.csv"], [], ["ml", "--root", ".", "--model-file", "a_boost.ml", "--drop", "route,day", "--limit", "1000000", "predict", "a_test.csv"], stdout_file="a_pred_boost.json", max_output=33554432)
     fl.step(["a_base.ml", "a_test.csv"], [], ["ml", "--root", ".", "--model-file", "a_base.ml", "--drop", "route,day,stops,temp_c,span_min", "--limit", "1000000", "predict", "a_test.csv"], stdout_file="a_pred_base.json", max_output=33554432)
     fl.step(["pred_routes.py", "a_test.csv", "a_pred_boost.json", "a_pred_base.json"], ["a_pred.csv"], ["python3", "pred_routes.py", "a_test.csv", "a_pred_boost.json", "a_pred_base.json", "a_pred.csv"])
@@ -95,9 +113,11 @@ def run_steps(fl):
                 ["python3", "build_charging.py", str(dd), "data", "a_pred.csv", "charging.json", "a"])
         solve_chain(fl, b)
     fl.step(["loop_summary.py"] + ["a/models/D%d.%s" % (dd, e) for dd in days for e in ("json", "plan.json")], ["a_summary.json"], ["python3", "loop_summary.py", "a", str(DAY0), str(DAY1), ".", "a_summary.json"])
+    done("A")
     # ---- the coupling in the week, and the summary ----
     fl.step(["loop_summary.py", "data/routes.csv", "data/telemetry.csv", "data/dispensing.csv"], ["d_summary.json"], ["python3", "loop_summary.py", "d", str(WEEK), "data", "d_summary.json"])
     fl.step(["loop_summary.py", "c_summary.json", "b_summary.json", "a_summary.json", "d_summary.json"], ["summary.json"], ["python3", "loop_summary.py", "merge", "summary.json", "c_summary.json", "b_summary.json", "a_summary.json", "d_summary.json"])
+    done("summary")
     return phs, bphs, days
 
 
@@ -218,9 +238,12 @@ def run_once(out, runs_dir=None):
     for f in ("features_b.py", "features_a2.py", "pred_join.py", "apply_isotonic.py", "pred_routes.py", "build_models.py", "build_outreach.py", "build_charging.py", "verify_input.py", "loop_summary.py", "costs.json", "outreach.json", "charging.json"):
         shutil.copy2(HERE / f, fl.root / f)
     shutil.copy(HERE / "twinlib" / "delivery.py", fl.root / "twinlib" / "delivery.py")
+    t0 = time.time()
     phs, bphs, days = run_steps(fl)
+    wall = time.time() - t0  # the steps, not the judging
     problems, report = judge(fl, phs, bphs, days)
     (out / "report.json").write_text(json.dumps({"problems": problems, "report": report, "steps": fl.steps}))
+    (out / "timing.json").write_text(json.dumps({"wall_s": wall, "stages_s": fl.stage, "by_program_ms": fl.ms, "steps": fl.steps, "threads": THREADS or "default"}))
     return 0
 
 
