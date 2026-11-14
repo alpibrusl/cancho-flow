@@ -405,9 +405,9 @@
    "note": "added probability per minute the doors are open; stylised"
   },
   "excursion_per_10c_ppm": {
-   "value": 40000,
+   "value": 150000,
    "source": "choice",
-   "note": "added probability per 10 degrees above 20 C outside; stylised"
+   "note": "added probability per 10 degrees above 20 C outside; stylised. Raised from 40,000 to 150,000 on 2026-11-14 so that the effect can be seen at this size (docs/use-cases.md, margin G2c)"
   },
   "temp_mean_c": {
    "value": 18,
