@@ -796,3 +796,26 @@ the connection anyway.
 variables, so `opt` is held against a closed form here.
 
 **What this does not show.** One seed and one size, the nights of the last 182 days; the needs are the predicted energy plus a safety, with no battery-state model and no look at the next day's route; an uplift or a tariff that are choices; the safety of 3.0 kWh was fixed from the residual sizing of the energy model, and a different value changes the shortfall share; and the cost comparison is with one simple alternative.
+
+### U4d: the coupling from a late or a warm delivery to the pharmacy (2026-11-14) **[measured, once; G1 and G3d hold]**
+
+*Code: the table `coupled` of `twinlib/core.py` and `twinlib/delivery.py`, the coupled checks of `scripts/check_twin.py`, `features_ad.py`, `scripts/pipeline_ad.py`. The margins (G1 for the coupled tables, G3d) were committed (`7a9a32d`) **together with** the twin mechanism they judge, not before it: the mechanism was written, sized on seed 7, and the margins then written from that sizing, before any
+check of the coupled tables or the pipeline existed. That is stated in the margin. The gate seed is 20261112. The control run is 10 recorded `flow` steps on the large size.*
+
+**G1 for the coupled tables [holds].** Two runs give the same bytes; `truth/coupling.csv` equals the late and warm pharmacy-weeks recomputed from the delivery files; the stock ledger holds under the arrival rule recomputed from them (a late week receives nothing and holds what was due; the next week receives that and what it ordered; a warm week writes off the cold-chain arrival the same week; the chain of every item as before);
+with no delivery at all the coupled dispensing file is byte for byte the uncoupled one; the coupled table without `dispensing` and `delivery` is refused with `twin.bad-tables`; no older table moves when `coupled` is not asked for. **7 new mutants, 7 killed** (the late rule off, the warm rule off, the discard applied to every item, the held order lost, `>=` instead of `>` for late, the warm flag in the wrong week, the two columns of the coupling file swapped), 40 mutants defined in all.
+
+**G3d [holds].**
+
+| claim | in the twin | control (the same delivery data, no effect) | margin | |
+|---|---|---|---|---|
+| stockout proportion, late weeks (34,800 pharmacy-item-weeks) minus others (381,200) | **+0.1595** (0.1883 against 0.0288), p below the smallest double | **-0.0015** (0.0124 against 0.0139), p = 0.021 | at least 0.05 with p < 1e-6; control within 0.01 of zero and p >= 1e-3 | holds |
+| write-off proportion among cold-chain items that received stock, warm weeks (5,045) minus others (12,493) | **+0.9998** (1.0000 against 0.0002), p below the smallest double | shares 0.0000 and 0.0001; `stats` gives p = 0.520 | at least 0.5 with p < 1e-6; control shares at most 0.01 | holds |
+
+The sizing on seed 7 had given +0.141 and -0.001 for the stockout; the gate seed gives a larger +0.1595 (174 late pharmacy-weeks against 186, other data). G7: the 10 steps check clean and a changed byte is detected.
+
+**Mutants of `pipeline_ad.py`: 4 killed by a G3d line, 1 stopped by the tool.** The twin ignoring late weeks (difference +0.0014) and ignoring warm weeks (-0.0002), the control made coupled (+0.1595 in it), and the late flag taken from the wrong column (+0.0324, under the bound) are killed by G3d. `warm-test-grouped-by-late` is **stopped by `stats.group-levels`**: in the coupled twin every cold-chain arrival is in a week that is not late
+(a late week receives nothing), so `late` has one level there and `stats` refuses; no G3d line is printed, and this is reported as stopped by the tool, not as killed by the gate.
+
+**What this does not show.** The mechanism is a stated choice and deterministic (a warm week discards every cold-chain arrival, a late week holds the order a week): warm weeks are **31 percent** of pharmacy-weeks at the gate seed's rates, a harsh and unrealistic coupling, and the 0.9998 is the mechanism, not a finding. The effect on stockouts is the mechanism's too, plus a bullwhip (a held order and the next order arrive together). No look at B's lapses through the new stockouts has been made here; that is the
+closed loop, U5. One seed and size, one machine.
