@@ -141,6 +141,7 @@ def judge(fl, phs, bphs, days):
             problems.append("G14: %d %s plans are not verified, e.g. %s" % (len(bad), name, bad[0]))
     # ---- G15: the summary recomputed from the raw plan and data files ----
     S = json.loads(fl.read("summary.json"))
+    g15 = len(problems)
     want = {"c": {"week": WEEK, "pharmacies": {}}, "b": {"week": WEEK, "pharmacies": {}}, "a": {"days": [DAY0, DAY1], "nights": {}}}
     pack = {r["item"]: int(r["pack_size"]) for r in T(fl.read("data/items.csv"))}
     ctest = T(fl.read("c_test.csv"))
@@ -151,11 +152,12 @@ def judge(fl, phs, bphs, days):
     home = {r["patient"]: r["home_pharmacy"] for r in T(fl.read("data/patients.csv"))}
     nev = {}
     for r in T(fl.read("b_test_cal.csv")):
-        nev[home[r["patient"]]] = nev.get(home[r["patient"]], 0) + 1
+        if int(r["due_week"]) == WEEK:  # the events the decision is about; a file with later weeks in it is G16's finding, not a crash here
+            nev[home[r["patient"]]] = nev.get(home[r["patient"]], 0) + 1
     for p in bphs:
         plan = json.loads(fl.read("b/models/W%d_%s.plan.json" % (WEEK, p)))
         n = nev[p]
-        row = {kk: sum(int(round(plan["x"]["%s[%d]" % (key, e)])) for e in range(n)) for kk, key in (("call", "xc"), ("reminder", "xr"), ("switch90", "xs"), ("delivery", "xd"))}
+        row = {kk: sum(int(round(plan["x"].get("%s[%d]" % (key, e), 0))) for e in range(n)) for kk, key in (("call", "xc"), ("reminder", "xr"), ("switch90", "xs"), ("delivery", "xd"))}
         row.update({"events": n, "expected_value": "%.6f" % plan["objective"]})
         want["b"]["pharmacies"][p] = row
     routes = T(fl.read("data/routes.csv"))

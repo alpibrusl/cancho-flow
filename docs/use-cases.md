@@ -828,3 +828,25 @@ The sizing on seed 7 had given +0.141 and -0.001 for the stockout; the gate seed
 
 **What this does not show.** The mechanism is a stated choice and deterministic (a warm week discards every cold-chain arrival, a late week holds the order a week): warm weeks are **31 percent** of pharmacy-weeks on seed 7 and about 29 percent of the cold-chain arrivals at the gate seed (5,045 of 17,538), a harsh and unrealistic coupling, and the 0.9998 is the mechanism, not a finding. The effect on stockouts is the mechanism's too, plus a bullwhip (a held order and the next order arrive together). No look at B's lapses through the new stockouts has been made here; that is the
 closed loop, U5. One seed and size, one machine.
+
+### U5: the loop, a week of the whole chain in one command (2026-11-14) **[measured; G13 to G17 hold]**
+
+*Code: `scripts/loop.py` and `loop_summary.py`. The design and the margins (G13 to G17) were committed (`be7f67e`) before the loop was written. The command is `CANCHO=<compiler> SCIPY_PYTHON=<a python with scipy> python3 scripts/loop.py`; it runs the whole chain twice at once in fresh directories and judges the first run. Same machine as before (4 cores). The first full run passed; nothing was tuned.*
+
+**What one run is.** 218 recorded `flow` steps: the large, coupled twin (week 100, days 700 to 706); C: the lag features, a boost fitted on weeks 48 to 99, the forecast of week 100 and 20 replenishment decisions in `solve`; B: the refill events, a boost fitted before week 74, isotonic calibration on weeks 74 to 99, the 1,843 events due in week 100 and 20 outreach decisions in `solve`; A: a boost for
+route energy fitted before day 700, and the charging plan of each of the 7 nights of days 700 to 706 in `solve` (23 truck-nights); then four summaries and their merge. **Two independent runs took 141 seconds in all** (both running at once on 4 cores); that is a wall-clock figure of this machine under that load, not the measured run of U6.
+
+**G13 [holds].** Two independent runs give a byte-identical `summary.json` (sha256 starting `a701f5de6ac65856`) and byte-identical records (the 218 files of `rec/`, by name and content); an earlier single run of the same command gave the same digest, so three runs agree.
+
+**G14 [holds].** Every plan is `verified` by `solve verify` with its objective checked, none stopped at the node limit, and HiGHS (from the data, not the model text) agrees on all of them: replenishment 20 plans (worst relative gap 4.1e-8), outreach 20 (7.1e-11), charging 7 (4.2e-12).
+
+**G15 [holds].** The summary equals a recomputation from the raw plan and data files, on all four parts (replenishment, outreach, charging, coupling). For the record, the week's numbers: 14,310 units ordered over 20 pharmacies; the 1,843 events get 542 reminders, 843 switches to 90-day supply and 200 home deliveries and **no pharmacist call** (the minutes are better spent on the others under these costs), with an expected gain of
+1,417.7 adherent days; 7 nights charge 862.4 kWh for a cost of 94.86. These are outputs of the stages, not claims about their quality (that is what the earlier gates judge).
+
+**G16 [holds].** 20, 20 and 7 decisions; the weeks of the decisions are week 100 (C, B) and days 700 to 706 (A); no fit file reaches the week (C's fit ends at week 99, B's at 99, A's at day 699). **The coupling is visible in the week:** the late pharmacy of week 100 is P019 and the warm ones are P013, P016 and P020 (from the delivery files); the pharmacies with a late or warm
+delivery have 65 stockout items in week 100 and 137 in week 101, the other 16 pharmacies 113 and 217. No statistical claim is made on one week and four pharmacies.
+
+**G17 [holds].** `flow-records check` is clean on the 218 steps and detects a changed byte of `c_test.csv`. **Mutants: 5 of 5 killed:** the fit of C including week 100 (G16: "C's fit reaches week 100"), B deciding on weeks 100 to 103 (G16), the summary's ordered units off by one (G15), a stage missing from the summary (G15), a clock in the summary (G13: the two runs differ).
+Two faults of the harness came up on the first run of the mutants and were corrected: the outreach mutant crashed the gate's own recomputation (`KeyError`, it counted the events of later weeks) before G16 printed anything, and the clock mutant's run stopped because a `flow` step hit its deadline when six processes shared 4 cores; each was rerun alone.
+
+**What this does not show.** The loop is closed in the data and **open in the decisions**: the plans do not change the twin's world (the twin is generated whole beforehand), so a replenishment order that is better than the pharmacy's own does not reduce next week's stockouts here. One week, one seed, one machine; reproducible bytes on this machine are not reproducible bytes on another platform (U6); and nothing about the loop's numbers is a claim of quality.
