@@ -40,8 +40,8 @@ def parse_args(argv):
         if k not in opts:
             raise TwinError("twin.usage", "missing --%s" % k, "python3 twin.py generate --world W --seed N --size small|large --out DIR")
     tabs = tuple(sorted(set(opts.get("tables", "core,dispensing,refills").split(","))))
-    if not tabs or any(t not in ("core", "dispensing", "refills") for t in tabs) or "core" not in tabs or ("refills" in tabs and "dispensing" not in tabs):
-        raise TwinError("twin.bad-tables", "--tables is core, core,dispensing or core,dispensing,refills", "use --tables core,dispensing,refills")
+    if not tabs or any(t not in ("core", "dispensing", "refills", "delivery") for t in tabs) or "core" not in tabs or ("refills" in tabs and "dispensing" not in tabs):
+        raise TwinError("twin.bad-tables", "--tables is core, core,dispensing, core,dispensing,refills, or one of them with delivery added", "use --tables core,dispensing,refills")
     opts["tables"] = tabs
     if opts["size"] not in world.SIZES:
         raise TwinError("twin.bad-size", "the size is small or large", "use --size small or --size large")

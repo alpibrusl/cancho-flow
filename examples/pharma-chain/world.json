@@ -288,6 +288,234 @@
    "value": 4,
    "source": "choice",
    "note": "weeks up to the due date in which a stockout counts as seen by the patient; stylised"
+  },
+  "delivery_prob_ppm": {
+   "value": 500000,
+   "source": "choice",
+   "note": "probability a pharmacy has a delivery on a day; stylised"
+  },
+  "window_start_hours": {
+   "value": [
+    [
+     8,
+     3
+    ],
+    [
+     9,
+     3
+    ],
+    [
+     10,
+     2
+    ],
+    [
+     11,
+     1
+    ]
+   ],
+   "source": "choice",
+   "note": "hour at which a delivery window opens (two hours long), weighted; stylised"
+  },
+  "stop_service_minutes": {
+   "value": [
+    [
+     10,
+     1
+    ],
+    [
+     15,
+     2
+    ],
+    [
+     20,
+     1
+    ]
+   ],
+   "source": "choice",
+   "note": "minutes at a stop (never less than the door-open minutes), weighted; stylised"
+  },
+  "door_open_minutes": {
+   "value": [
+    [
+     1,
+     2
+    ],
+    [
+     2,
+     3
+    ],
+    [
+     3,
+     3
+    ],
+    [
+     4,
+     2
+    ],
+    [
+     6,
+     2
+    ],
+    [
+     8,
+     1
+    ]
+   ],
+   "source": "choice",
+   "note": "minutes the doors are open at a stop, weighted; stylised"
+  },
+  "speed_kmh": {
+   "value": 30,
+   "source": "choice",
+   "note": "driving speed; stylised"
+  },
+  "drive_wh_per_km": {
+   "value": 450,
+   "source": "choice",
+   "note": "traction energy per km; stylised, of the order a medium electric van uses, not fitted"
+  },
+  "fridge_w": {
+   "value": 1800,
+   "source": "choice",
+   "note": "refrigeration unit electric power in watts at a mild outside temperature; stylised"
+  },
+  "fridge_temp_ppm": {
+   "value": 300000,
+   "source": "choice",
+   "note": "fraction by which refrigeration power rises per 10 degrees above 20 C; stylised"
+  },
+  "door_w": {
+   "value": 3000,
+   "source": "choice",
+   "note": "extra power in watts while the doors are open; stylised"
+  },
+  "noise_ppm": {
+   "value": 40000,
+   "source": "choice",
+   "note": "standard deviation of the multiplicative noise on a stop's energy, in ppm; stylised"
+  },
+  "excursion_base_ppm": {
+   "value": 20000,
+   "source": "choice",
+   "note": "base probability of a temperature excursion at a stop; stylised"
+  },
+  "excursion_per_door_min_ppm": {
+   "value": 15000,
+   "source": "choice",
+   "note": "added probability per minute the doors are open; stylised"
+  },
+  "excursion_per_10c_ppm": {
+   "value": 40000,
+   "source": "choice",
+   "note": "added probability per 10 degrees above 20 C outside; stylised"
+  },
+  "temp_mean_c": {
+   "value": 18,
+   "source": "choice",
+   "note": "mean outside temperature in whole degrees; stylised"
+  },
+  "temp_amplitude_c": {
+   "value": 12,
+   "source": "choice",
+   "note": "seasonal amplitude in degrees (triangle); stylised"
+  },
+  "temp_noise_c": {
+   "value": 3,
+   "source": "choice",
+   "note": "standard deviation of the daily noise in degrees; stylised"
+  },
+  "warm_peak_week": {
+   "value": 30,
+   "source": "choice",
+   "note": "week of the year of the warmest days; stylised"
+  },
+  "grid_km": {
+   "value": 20,
+   "source": "choice",
+   "note": "side of the square the pharmacies are placed in, depot at the corner; stylised"
+  },
+  "truck_battery_kwh": {
+   "value": [
+    [
+     80,
+     1
+    ],
+    [
+     100,
+     2
+    ],
+    [
+     120,
+     2
+    ]
+   ],
+   "source": "choice",
+   "note": "usable battery of a truck, weighted; stylised"
+  },
+  "reserve_kwh": {
+   "value": 15,
+   "source": "choice",
+   "note": "energy a route must leave in the battery; stylised"
+  },
+  "depot_cap_kw": {
+   "value": [
+    60,
+    60,
+    60,
+    60,
+    60,
+    60,
+    80,
+    80,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    80,
+    80
+   ],
+   "source": "choice",
+   "note": "grid connection by hour of the night and day, in kW, shared with the refrigerated warehouse; stylised"
+  },
+  "depot_tariff_milli": {
+   "value": [
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    180,
+    180,
+    240,
+    240,
+    240,
+    240,
+    240,
+    240,
+    240,
+    240,
+    240,
+    240,
+    300,
+    300,
+    300,
+    300,
+    200,
+    200
+   ],
+   "source": "choice",
+   "note": "price per kWh by hour in thousandths of a currency unit; stylised"
   }
  }
 }

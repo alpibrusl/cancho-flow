@@ -48,6 +48,33 @@ PARAMS = {
 }
 
 
+# the delivery group (A's twin): optional as a group, all or none; required when the table `delivery` is asked for
+DELIVERY_PARAMS = {
+    "delivery_prob_ppm": "share",
+    "window_start_hours": "weighted",
+    "stop_service_minutes": "weighted",
+    "door_open_minutes": "weighted",
+    "speed_kmh": "count",
+    "drive_wh_per_km": "count",
+    "fridge_w": "bigcount",
+    "fridge_temp_ppm": "share",
+    "door_w": "bigcount",
+    "noise_ppm": "share",
+    "excursion_base_ppm": "share",
+    "excursion_per_door_min_ppm": "share",
+    "excursion_per_10c_ppm": "share",
+    "temp_mean_c": "count",
+    "temp_amplitude_c": "count",
+    "temp_noise_c": "count",
+    "warm_peak_week": "week52",
+    "grid_km": "count",
+    "truck_battery_kwh": "weighted",
+    "reserve_kwh": "count",
+    "depot_cap_kw": "hourly24",
+    "depot_tariff_milli": "hourly24",
+}
+
+
 def _int(x):
     return isinstance(x, int) and not isinstance(x, bool)
 
@@ -65,6 +92,12 @@ def _check_value(name, kind, v):
         ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 900_000 for x in v)
     elif kind == "peak3":
         ok = isinstance(v, list) and len(v) == 3 and all(_int(x) and 0 <= x <= 51 for x in v)
+    elif kind == "bigcount":
+        ok = _int(v) and 1 <= v <= 1_000_000
+    elif kind == "week52":
+        ok = _int(v) and 0 <= v <= 51
+    elif kind == "hourly24":
+        ok = isinstance(v, list) and len(v) == 24 and all(_int(x) and 0 <= x <= 1_000_000 for x in v)
     elif kind == "cover":
         ok = _int(v) and 100_000 <= v <= 10_000_000
     elif kind == "weeks":
@@ -100,9 +133,12 @@ def parse(text):
     if not isinstance(params, dict):
         raise TwinError("twin.bad-world", "the world has no params")
     for k in params:
-        if k not in PARAMS:
-            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS)))
-    for k, kind in PARAMS.items():
+        if k not in PARAMS and k not in DELIVERY_PARAMS:
+            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS) + sorted(DELIVERY_PARAMS)))
+    present = [k for k in DELIVERY_PARAMS if k in params]
+    if present and len(present) != len(DELIVERY_PARAMS):
+        raise TwinError("twin.missing-param", "the delivery parameters are all or none: %s is missing" % next(k for k in DELIVERY_PARAMS if k not in params), "add every delivery parameter or none")
+    for k, kind in list(PARAMS.items()) + [(k, DELIVERY_PARAMS[k]) for k in present]:
         if k not in params:
             raise TwinError("twin.missing-param", "parameter %s is missing" % k, "add %s to the world file" % k)
         e = params[k]

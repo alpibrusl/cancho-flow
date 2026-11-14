@@ -123,6 +123,7 @@ def refill_series(p, n, patients, items, stockouts, root):
 
 
 def generate(world, seed, size, tables=("core", "dispensing", "refills")):
+    from .world import DELIVERY_PARAMS, TwinError
     p = {k: v["value"] for k, v in world["params"].items()}
     n = world["sizes"][size]
     root = SplitMix64(seed)
@@ -169,7 +170,7 @@ def generate(world, seed, size, tables=("core", "dispensing", "refills")):
         "seed": seed,
         "size": size,
         "counts": {"items": n["items"], "pharmacies": n["pharmacies"], "patients": n["patients"]},
-        "params": {k: {"value": v["value"], "source": v["source"]} for k, v in world["params"].items()},
+        "params": {k: {"value": v["value"], "source": v["source"]} for k, v in world["params"].items() if k not in DELIVERY_PARAMS},
         "realised": {
             "cold_chain_items": cold,
             "controlled_items": controlled,
@@ -191,5 +192,13 @@ def generate(world, seed, size, tables=("core", "dispensing", "refills")):
             files["refills.csv"] = _csv(("patient", "item", "pharmacy", "due_week", "interval_weeks", "stockout_seen", "filled"), rrows)
             truth["realised"].update(rcounts)
         truth["realised"]["items_by_group"] = {g: sum(1 for it in items if it[6] == g) for g in GROUPS}
+    if "delivery" in tables:
+        if "depot_cap_kw" not in world["params"]:
+            raise TwinError("twin.missing-param", "the table delivery needs the delivery parameters in the world file", "add the delivery parameters (docs/use-cases.md section 4.2)")
+        from . import delivery
+        dfiles, dreal = delivery.generate(p, n, pharmacies, root)
+        files.update(dfiles)
+        truth["delivery_params"] = {k: {"value": world["params"][k]["value"], "source": world["params"][k]["source"]} for k in DELIVERY_PARAMS}
+        truth["delivery_realised"] = dreal
     files["truth.json"] = json.dumps(truth, sort_keys=True, separators=(",", ":")) + "\n"
     return files, truth
