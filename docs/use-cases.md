@@ -236,6 +236,14 @@ the days-to-expiry. All killed, or each survivor explained.
   `optimal` objective equals HiGHS's on the same data to 1e-6 relative. **Rule fixed now for what follows:** U4's decision uses the largest D (10, 14 or 18) for which all three seeds pass its bound
   (a at most 5 s; b at most 60 s; for 18 no bound is claimed: it is run with the node limit and reported); if (b) fails, U4 uses D = 10 and says why, and the failure goes into section 10 and to
   cancho-solve as a model of that shape.
+* **G10b, the same route selection with the trucks aggregated into classes (U4), fixed 2026-11-14 after G10 failed (section 10) and before the aggregated model was built or run.** The symmetry
+  explanation of G10 is a hypothesis, not a finding; this tests it. The model: 4 classes (the batteries 60, 80, 100 and 120 kWh), each taken by at most 2 routes (the 8 trucks of G10 were these four batteries twice),
+  integer variables `y[r,c]` in 0..1 with the same cover rows, the same cost and the same battery rule. Same instances, seeds, pool rule, constants and machine description as G10; the load on the machine written beside the numbers
+  (the mutant runs of U3b may be running: if so the load shows it and the times are upper bounds on an idle machine, **a choice** stated now so that a miss is not blamed on it afterwards).
+  **Claims, each of which can be refuted:** (a') D = 10 on three seeds: `optimal` in at most 5 s; (b') D = 14 on three seeds: `optimal` in at most 60 s; (c') every `optimal` objective equals HiGHS's on the aggregated model to 1e-6 relative;
+  (d) on D = 18, which both models solve, the two optimal objectives equal each other to 1e-6 relative (the reformulation does not change the optimum). **Rule, fixed now:** if (a') and (b') hold, U4's decision uses the
+  aggregated model at the largest D that passes, and trucks are assigned within a class afterwards by a program (an arbitrary choice among equals, stated); if either fails, the symmetry explanation is **not** supported and is reported as such;
+  U4's decision then keeps stop order and route selection out of `solve` (the twin gives the routes as data and `solve` does the charging plan only), and says so.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
