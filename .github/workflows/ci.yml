@@ -1,6 +1,6 @@
 # What this workflow runs: scripts/check.sh, the repository's gate (authority, the gates G1 to G17, every mutant, the landing page's checks), on Linux x86-64.
 # The compiler is the commit cancho.toml names, built from its committed seed with clang (no Rust: cancho docs/seed.md), the way cancho-table, cancho-ml and cancho-stats do.
-# Third-party actions are pinned by full commit SHA. What it does not run, and why, is in the step that says so.
+# Third-party actions are pinned by full commit SHA. Only Linux x86-64 is covered: the gate has not been run on macOS or aarch64.
 name: ci
 
 on:
