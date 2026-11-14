@@ -70,8 +70,28 @@ def model(D, routes):
     return t
 
 
-def highs(D, routes):
+def model_classes(D, routes):
+    """G10b: 4 classes (the 4 batteries), each taken by at most 2 routes; the same cover rows, cost and battery rule."""
+    R = len(routes)
+    C = 4
+    cover = [1 if d in sub else 0 for d in range(D) for sub, _, _ in routes]
+    ok = [1 if e + RESERVE <= BATT[c] else 0 for _, e, _ in routes for c in range(C)]
+    t = "param D = %d;\nparam R = %d;\nparam C = %d;\n" % (D, R, C)
+    t += "param cost = [%s];\n" % ", ".join("%.6f" % c for _, _, c in routes)
+    t += "param cover = [%s];\n" % ", ".join(str(v) for v in cover)
+    t += "param fits = [%s];\n" % ", ".join(str(v) for v in ok)
+    t += "var y[0..R, 0..C] : bool;\n"
+    t += "minimize total: sum r in 0..R: sum c in 0..C: cost[r] * y[r,c];\nsubject to\n"
+    t += "    forall d in 0..D: once: sum r in 0..R: sum c in 0..C: cover[d*R+r] * y[r,c] == 1;\n"
+    t += "    forall c in 0..C: two_routes: sum r in 0..R: y[r,c] <= 2;\n"
+    t += "    forall r in 0..R: forall c in 0..C: battery: y[r,c] <= fits[r*C+c];\n"
+    return t
+
+
+def highs(D, routes, classes=False):
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
+    KK = 4 if classes else K
+    CAP = 2 if classes else 1
     code = r'''
 import json,sys
 import numpy as np
@@ -85,14 +105,14 @@ for dl in range(D):
         if d["cover"][dl*R+j]: r[j*K:(j+1)*K]=1
     rows.append(r);lo.append(1);hi.append(1)
 for k in range(K):
-    r=np.zeros(R*K); r[k::K]=1; rows.append(r);lo.append(-np.inf);hi.append(1)
+    r=np.zeros(R*K); r[k::K]=1; rows.append(r);lo.append(-np.inf);hi.append(d["cap"])
 ub=np.array(d["fits"],dtype=float)
 res=milp(c,constraints=LinearConstraint(np.array(rows),lo,hi),integrality=np.ones(R*K),bounds=Bounds(np.zeros(R*K),ub))
 print(json.dumps({"status":int(res.status),"obj":float(res.fun) if res.success else None}))
 '''
     cover = [1 if d in sub else 0 for d in range(D) for sub, _, _ in routes]
-    ok = [1 if e + RESERVE <= BATT[k] else 0 for _, e, _ in routes for k in range(K)]
-    r = subprocess.run([py, "-c", code], input=json.dumps({"D": D, "R": len(routes), "K": K, "cost": [c for _, _, c in routes], "cover": cover, "fits": ok}), capture_output=True, text=True)
+    ok = [1 if e + RESERVE <= BATT[k] else 0 for _, e, _ in routes for k in range(KK)]
+    r = subprocess.run([py, "-c", code], input=json.dumps({"D": D, "R": len(routes), "K": KK, "cap": CAP, "cost": [c for _, _, c in routes], "cover": cover, "fits": ok}), capture_output=True, text=True)
     try:
         return json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -101,6 +121,7 @@ print(json.dumps({"status":int(res.status),"obj":float(res.fun) if res.success e
 
 def main(argv):
     sizes, seeds, runs = [10, 14, 18], [1, 2, 3], 3
+    classes = "--classes" in argv
     for i, a in enumerate(argv):
         if a == "--sizes":
             sizes = [int(x) for x in argv[i + 1].split(",")]
@@ -113,12 +134,13 @@ def main(argv):
         load = open("/proc/loadavg").read().split()[:3]
     except OSError:
         load = ["?"]
+    print("model: %s" % ("G10b, 4 classes of 2 trucks" if classes else "G10, 8 trucks"))
     print("machine: %d cores, load average at start %s" % (os.cpu_count(), " ".join(load)))
     out = {}
     for D in sizes:
         for seed in seeds:
             dels, routes = instance(D, seed)
-            text = model(D, routes)
+            text = model_classes(D, routes) if classes else model(D, routes)
             with tempfile.NamedTemporaryFile("w", suffix=".sol", delete=False) as f:
                 f.write(text)
             best, doc = None, None
@@ -133,7 +155,7 @@ def main(argv):
                 except ValueError:
                     doc = {"status": "no-json", "error": (r.stdout + r.stderr)[:200]}
             os.unlink(f.name)
-            h = highs(D, routes) if doc.get("status") == "optimal" and os.environ.get("SKIP_ORACLE") != "1" else None
+            h = highs(D, routes, classes) if doc.get("status") == "optimal" and os.environ.get("SKIP_ORACLE") != "1" else None
             gap = None
             if h and h.get("obj") is not None:
                 gap = abs(h["obj"] - doc["objective"]) / max(1.0, abs(h["obj"]))
@@ -147,7 +169,7 @@ def main(argv):
         if D in sizes:
             rows = [out[(D, s)] for s in seeds if (D, s) in out]
             ok = all(st == "optimal" and t <= bound for st, t, _ in rows)
-            print("claim %s (D=%d optimal within %.0f s on every seed): %s" % ("a" if D == 10 else "b", D, bound, "holds" if ok else "FAILS"))
+            print("claim %s (D=%d optimal within %.0f s on every seed): %s" % (("a" if D == 10 else "b") + ("'" if classes else ""), D, bound, "holds" if ok else "FAILS"))
             if not ok:
                 bad.append(D)
     gaps = [g for (_, _, g) in out.values() if g is not None]
