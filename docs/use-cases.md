@@ -244,6 +244,17 @@ the days-to-expiry. All killed, or each survivor explained.
   (d) on D = 18, which both models solve, the two optimal objectives equal each other to 1e-6 relative (the reformulation does not change the optimum). **Rule, fixed now:** if (a') and (b') hold, U4's decision uses the
   aggregated model at the largest D that passes, and trucks are assigned within a class afterwards by a program (an arbitrary choice among equals, stated); if either fails, the symmetry explanation is **not** supported and is reported as such;
   U4's decision then keeps stop order and route selection out of `solve` (the twin gives the routes as data and `solve` does the charging plan only), and says so.
+* **G1 and G2 for A's twin (U4a), fixed 2026-11-14 before the delivery tables were written.** *The twin (stated now so that the margins mean something):* days are weeks times 7; a day's outside temperature in whole
+  degrees is a mean plus a seasonal triangle plus noise; each pharmacy has a delivery on a day with a probability; the day's deliveries are sorted by the end of their two-hour window and cut into routes of at most 3 stops, the
+  routes taking the trucks in order (so no truck has two routes in a day and routes per day never exceed the trucks); a stop's energy in watt-hours is driving (distance times a rate) plus refrigeration (a power times the minutes, raised by a fraction
+  per 10 degrees above 20) plus the doors (a power times the minutes open), with a noise of a few percent; a stop's temperature excursion has a probability that is a base plus a term per minute of the doors open plus a term per 10 degrees above 20. The
+  analysis side sees the energy of each stop (not its parts), the minutes, the door minutes and the temperature; the parts and the probability go to `truth/`. Every coefficient is a **choice** in the world file.
+  * **G1 (for the new tables):** the same world, seed and size give the same bytes, and another seed another file; the energy of a route is the sum of its stops' energy exactly; each delivery appears in exactly one route; no truck has two routes
+    on a day; every route's energy fits its truck's battery with the reserve of the model of section 4.2 (a violation count of zero, the twin being built to keep it); the tables can be asked for with and without the delivery group and the
+    older tables are byte for byte what they were (the digests of U3a are unchanged).
+  * **G2:** on the `large` size, `stats test t2` of the energy per minute on days at or above 25 degrees against days at or below 15 gives a positive difference with p < 1e-6, and in a control whose refrigeration-temperature fraction is zero p >= 1e-3
+    (the driving share makes the energy per minute depend on speed and not on the temperature, so the control is clean by construction; if it is not, that is a finding); `stats test chisq` of the excursion against the door-open band (0 to 2, 3 to 5, 6 or more
+    minutes) gives p < 1e-6, and in a control whose door term is zero p >= 1e-3; the same for the excursion against the temperature band (cool below 15, mild 15 to 24, hot 25 or more) with the temperature term zero in its control.
 * A margin that a measurement then fails is **reported as failed**, with the number. It is not moved to fit the number.
 
 ## 8. Milestones, each its own pull request
@@ -257,7 +268,10 @@ the days-to-expiry. All killed, or each survivor explained.
 | **U2c** | the coupling C to B (the lapse hazard sees stockouts), with G3 | the coupling is found at its value and not at zero |
 | **U3a** | B's model: the lapse predicted from what is known at each due date, on a time split, calibrated; the effects recovered by `stats`: G1 for the true hazards, G2, G4 and G8 for B | the README output is printed by `flow` records |
 | **U3b** | B's decision: who gets which outreach under a budget, in `solve`, and the twin's own effect of an outreach (it does not have one yet) | `solve verify` accepts every plan |
-| **U4** | A end to end, with G5, G6 and the `opt` calibration; the coupling A to C | same |
+| **U4a** | A's twin: trucks, locations, daily deliveries grouped into routes, per-stop telemetry (energy, cabin temperature, door-open minutes), the depot's hourly cap and tariff; G1 for the new tables and G2 (the refrigeration and the door effects found by `stats`, absent in a control) | the README output is printed by `flow` records |
+| **U4b** | A's models: a route's energy and the risk of a temperature excursion, on a time split, calibrated: G4 and G8 for A | same |
+| **U4c** | A's decision: the overnight charging plan under the depot cap in `solve` (route selection stays out of `solve`: G10 and G10b, section 10), and the `opt` calibration of the twin's coefficients to a telemetry file: G5 and G6 for charging | `solve verify` accepts every plan |
+| **U4d** | the coupling A to C (a late or warm delivery shows in C's stockouts and write-off) | the coupling is found at its value and not at zero |
 | **U5** | the closed loop: a week of the whole chain, one command | the loop's numbers are reproducible bytes |
 | **U6** | a measured run on one machine (machine, threads, load, minimum of N) and the claims the numbers support | numbers in section 10 |
 
