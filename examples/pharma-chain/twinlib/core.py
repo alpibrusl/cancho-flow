@@ -32,7 +32,7 @@ def mean_milli(base_milli, scale_ppm, seas_ppm):
     return max(1, base_milli * scale_ppm // 1_000_000 * seas_ppm // 1_000_000)
 
 
-def simulate(p, n, items, pharmacies, root):
+def simulate(p, n, items, pharmacies, root, flags=None):
     """Weekly sales at every pharmacy for every item, under a plain order-up-to policy. Demand is drawn week by week in a fixed order and does not depend on the
     stock, so two policies see the same demand; the sales are the demand cut at the stock on hand (the censoring), and the stock has lots that expire.
     Returns (dispensing rows, true-demand rows, the counts the truth records)."""
@@ -46,16 +46,22 @@ def simulate(p, n, items, pharmacies, root):
             b = base[pi][ii]
             shelf_weeks = it[1] // 7
             m0 = mean_milli(b, ph[4], 1_000_000)
-            cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0]])
+            cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0], 0, it[2]])
     disp, truth, sold_out, wasted, sold_total, demand_total = [], [], 0, 0, 0, 0
     for week in range(n["weeks"]):
         for c in cells:
-            lots, pending, hist, b, g, pack, shelf_weeks, scale, phid, itid = c
-            received = pending
-            if received:
+            lots, pending, hist, b, g, pack, shelf_weeks, scale, phid, itid, held, cold = c
+            arriving = pending + held
+            c[10] = 0
+            if flags and (phid, week) in flags["late"]:
+                c[10] = arriving  # a late delivery of the week: what was due is held to the next week (docs/use-cases.md section 4.2, U4d)
+                arriving = 0
+            received = arriving
+            discarded = received if (flags and cold and (phid, week) in flags["warm"]) else 0  # a warm delivery of the week: the cold-chain batch is thrown away on arrival
+            if received and not discarded:
                 lots.append([week + shelf_weeks, received])
             c[1] = 0
-            written_off = 0
+            written_off = discarded
             kept = []
             for exp, u in lots:
                 if exp <= week:
@@ -179,8 +185,15 @@ def generate(world, seed, size, tables=("core", "dispensing", "refills")):
             "patients_by_copay_band": dict(zip(COPAY_BANDS, copays)),
         },
     }
+    flags = None
+    if "coupled" in tables:
+        if "delivery" not in tables or "dispensing" not in tables or "depot_cap_kw" not in world["params"]:
+            raise TwinError("twin.bad-tables", "the table coupled needs dispensing and delivery, and the delivery parameters in the world file", "use --tables core,dispensing,delivery,coupled")
+        from . import delivery as _dl
+        _f, _r, flags = _dl.generate(p, n, pharmacies, root)  # the same streams as the delivery tables below: asking twice gives the same bytes
+        files["truth/coupling.csv"] = _csv(("pharmacy", "week", "late", "warm"), [(ph[0], w, int((ph[0], w) in flags["late"]), int((ph[0], w) in flags["warm"])) for ph in pharmacies for w in range(n["weeks"])])  # the analysis never reads this file; the gates do
     if "dispensing" in tables:
-        disp, tdem, sim = simulate(p, n, items, pharmacies, root)
+        disp, tdem, sim = simulate(p, n, items, pharmacies, root, flags)
         files["dispensing.csv"] = _csv(("pharmacy", "item", "week", "stock_start", "received", "written_off", "units", "stockout", "stock_end", "ordered"), disp)
         files["truth/demand.csv"] = _csv(("pharmacy", "item", "week", "demand", "true_mean_milli"), tdem)  # the analysis never reads this file; the gates do
         truth["counts"]["weeks"] = n["weeks"]
@@ -196,7 +209,7 @@ def generate(world, seed, size, tables=("core", "dispensing", "refills")):
         if "depot_cap_kw" not in world["params"]:
             raise TwinError("twin.missing-param", "the table delivery needs the delivery parameters in the world file", "add the delivery parameters (docs/use-cases.md section 4.2)")
         from . import delivery
-        dfiles, dreal = delivery.generate(p, n, pharmacies, root)
+        dfiles, dreal, _flags = delivery.generate(p, n, pharmacies, root)
         files.update(dfiles)
         truth["delivery_params"] = {k: {"value": world["params"][k]["value"], "source": world["params"][k]["source"]} for k in DELIVERY_PARAMS}
         truth["delivery_realised"] = dreal

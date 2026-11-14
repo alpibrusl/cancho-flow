@@ -31,6 +31,7 @@ def generate(p, n, pharmacies, root):
     rn = root.fork("noise")
     rx = root.fork("excursions")
     deliveries, routes, tele, parts, exc, day_rows = [], [], [], [], [], []
+    late_weeks, warm_weeks = set(), set()
     realised = {"deliveries": 0, "routes": 0, "stops": 0, "excursions": 0, "late_stops": 0, "energy_violations": 0}
     rid = 0
     for d in range(days):
@@ -75,6 +76,10 @@ def generate(p, n, pharmacies, root):
                 t = arrive + service
                 x, y = px, py
                 realised["late_stops"] += int(arrive > e)
+                if arrive > e:
+                    late_weeks.add((phid, d // 7))
+                if ex:
+                    warm_weeks.add((phid, d // 7))
             # the return to the depot, with the refrigeration still running
             km = x + y
             travel = km * SPEED_UNITS // p["speed_kmh"]
@@ -115,4 +120,4 @@ def generate(p, n, pharmacies, root):
         "truth/energy_parts.csv": _csv(("route", "seq", "drive_wh", "fridge_wh", "door_wh"), parts),  # the analysis never reads this file; the gates do
         "truth/excursion.csv": _csv(("route", "seq", "true_ppm", "excursion"), exc),  # the analysis never reads this file; the gates do
     }
-    return files, realised
+    return files, realised, {"late": late_weeks, "warm": warm_weeks}
