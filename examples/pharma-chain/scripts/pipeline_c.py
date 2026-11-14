@@ -72,6 +72,8 @@ class Flow:
             cmd += ["--stdin-file", stdin_file]
         if max_output:
             cmd += ["--max-output", str(max_output)]
+        if os.environ.get("FLOW_TIMEOUT_MS"):  # the experiment runs several arms at once on few cores: a longer deadline for a step, the same in every arm
+            cmd += ["--timeout-ms", os.environ["FLOW_TIMEOUT_MS"]]
         if allow_failure:  # `solve run` exits 1 for a search stopped at a limit with an incumbent (status feasible): a result, not a failure
             cmd += ["--allow-failure"]
         t0 = time.time()
