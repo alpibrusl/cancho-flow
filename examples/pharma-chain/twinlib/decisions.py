@@ -114,3 +114,6 @@ def _list(doc, key, name):
 def _members(e, keys, name):
     if not isinstance(e, dict) or set(e) != keys:
         _bad("week", "an entry of %s must be an object with exactly the members %s" % (name, ", ".join(sorted(keys))), "fix the entry")
+    for k in ("pharmacy", "item", "patient", "action", "truck"):
+        if k in e and not isinstance(e[k], str):
+            _bad("type", "the member %s of an entry of %s is not a string" % (k, name), "give %s as a string" % k)
