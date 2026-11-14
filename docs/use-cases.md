@@ -679,3 +679,27 @@ G7 on the 20 recorded steps is clean and detects a changed byte; the twin has 71
 no longer matched the file after an edit; the replacement of another broke the syntax) and were corrected and rerun alone.
 
 **What this does not show.** The 0.15 is a stated choice, 3.75 times the first one, chosen so that the test could see it; the excursion rate on hot days it implies (about 18 percent) is not read from any fleet. The refrigeration margin is still thin.
+
+### U4b: A's models; route energy passes G4, the excursion model FAILS G4, G8 passes (2026-11-14) **[measured, once]**
+
+*Code: `scripts/pipeline_a2.py`, `features_a2.py`, `pred_join_g.py`, `apply_isotonic_g.py`. The margins (and their sizing) were committed (`8ad8564`) before any model was built. The control is 22 recorded `flow` steps on the large size.*
+
+| claim | measured | margin | |
+|---|---|---|---|
+| G4 energy: boost MAE against the distance-only baseline, 669 test routes | 1,094 Wh against 1,610 Wh: **0.680** | at most 0.80 | holds |
+| G4 energy: boost MAE against the noise floor (a model that knew the parts) | 1,094 Wh against 638 Wh: 1.715 | at least 0.95 | holds |
+| G4 excursion: calibrated log loss against the constant model's, 1,827 test stops | 0.35676 against 0.35808: **0.9963** | at most 0.985 | **FAILS** |
+| G4 excursion: against the true probabilities' (0.33958) | 1.0506 | at least 0.97 | holds |
+| G8: five groups of the calibrated probability, 365 rows each | predicted/observed 0.053/0.079, 0.059/0.077, 0.088/0.148, 0.106/0.121, 0.126/0.150; largest deviation 0.81 of its bound | within the bound | holds |
+| split hygiene, G7 | no shared row, every fit day before every test day; 22 steps check clean, a changed byte is detected | | holds |
+
+**The failure.** The calibrated boost is barely better than the constant model on the test stops (0.9963), and the uncalibrated one is worse (0.36408, 1.0168 of the constant's): a boost fitted on 3,650 stops with about 365 excursions overfits, and isotonic calibration on 1,820 more stops brings it back to about the constant. The
+calibrated probabilities are also too low in every group (predicted 0.053 to 0.126, observed 0.077 to 0.150): G8 passes only because its bound at 365 rows per group is wide (0.8 of it used). A margin that could not be met by the true probabilities' own sampling was avoided (a perfect model would have been at 0.944); this one was missed by the model.
+
+**Exploratory, not a claim, and seen on the test stops (so it is not a clean selection):** the uncalibrated log loss against the constant model's on the same test stops, for the same fit stops: boost with the four features 1.0167; boost with the door minutes and the temperature only 0.9839; **logistic with the four features 0.9619; logistic with the door minutes and the temperature only 0.9609.** The family matters at this
+size, and a linear-logistic model, which is nearly the form of the twin's probability, clears the margin that the boost misses. Nothing was changed because of it.
+
+**Not run.** The mutants of `pipeline_a2.py` (6 are written): they need a control that passes G4.
+
+**Options for the maintainer (none taken):** (1) leave the excursion model as a failed claim: a boost does not learn it from one year of stops; (2) switch the excursion model to logistic and write a new margin first (the unchanged 0.985 and 0.97 would do, and the model would be chosen from the *calibration* days, not the test days, but I have already seen the test numbers above and the
+margin would say so); (3) more stops (more days or pharmacies) for the boost, with a sizing in the margin.
