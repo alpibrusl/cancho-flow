@@ -872,7 +872,7 @@ Two faults of the harness came up on the first run of the mutants and were corre
 | 6, `--threads 4` on every `ml fit` | 0.29 | 79.2 s | a701f5de6ac65856 |
 
 * **M1 [holds as a figure, not noisy]:** the 218 steps of one loop take **80.5 s at the minimum of five runs** (median 83.0 s, maximum 85.9 s; maximum over minimum 1.07, under the 1.25 at which the figure would have been called noisy). The whole process takes 137 to 146 s because it also judges (HiGHS, the recomputations); the judging is not part of the figure.
-* **M2 [holds]:** the five digests are equal and equal to U5's `a701f5de6ac65856`: the loop has not drifted since U5, in three more runs than U5 had.
+* **M2 [holds]:** the five digests are equal and equal to U5's `a701f5de6ac65856`: the loop has not drifted since U5 (five more runs, all equal to it).
 * **M3 [holds]:** with `--threads 4` on every `ml fit` the summary is byte for byte the same as at 1 thread, here through the whole chain; the documented claim of `ml` held on this loop. The run's 79.2 s is **not a speed claim**: it is one run, 1.3 s under the minimum of five, inside the noise.
 * **M4 [stated for this machine only], the fastest run, 80.5 s:** by stage, the twin 16.1 s, C 38.1 s, B 20.8 s, A 4.5 s, the summary 1.0 s; by program, **`python3` 63.1 s (79 percent), `ml` 11.0 s (14 percent), `solve` 4.8 s (6 percent), `table` 1.5 s (2 percent)** of the sum of the steps.
 
