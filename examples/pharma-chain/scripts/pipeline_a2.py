@@ -163,10 +163,13 @@ def _x(*parts):
 MUTANTS = [
     ("holdout-in-the-energy-fit", "scripts/pipeline_a2.py", _x('"day:int < %d" % FIT', '_E, "routes_e.csv"'), '"day:int < %d" % (FIT_E + 400), "routes_e.csv"', "G4"),
     ("holdout-in-the-excursion-fit", "scripts/pipeline_a2.py", _x('"day:int < %d" % FIT', '_X, "stops.csv"'), '"day:int < %d" % (FIT_X + 300), "stops.csv"', "G4"),
-    ("door-minutes-dropped-from-the-excursion-model", "scripts/pipeline_a2.py", _x('X_DROP = "route,day,pharmacy,temp_band,door_band,energy_wh', ',wh_per_min"'), 'X_DROP = "route,day,pharmacy,temp_band,door_band,energy_wh,wh_per_min,door_min"', "G4"),
+    # `minutes` (travel, wait and service, where service is at least the door-open time) carries door information, so dropping door_min alone removes none of it (measured: the first version of this mutant survived); both go.
+    ("door-information-dropped-from-the-excursion-model", "scripts/pipeline_a2.py", _x('X_DROP = "route,day,pharmacy,temp_band,door_band,energy_wh', ',wh_per_min"'), 'X_DROP = "route,day,pharmacy,temp_band,door_band,energy_wh,wh_per_min,door_min,minutes"', "G4"),
     ("distance-dropped-from-the-energy-model", "scripts/pipeline_a2.py", _x('E_DROP = "route', ',day"'), 'E_DROP = "route,day,distance_km"', "G4"),
     ("calibration-inverted", "scripts/pipeline_a2.py", _x('"--x-col", "p", "--y-col", LABEL, "iso', 'tonic"'), '"--x-col", "p", "--y-col", LABEL, "--decreasing", "isotonic"', "G4"),
-    ("label-as-a-feature", "features_a.py", _x('w.writerow([r["route"], r["seq"], d, r["pharmacy"], t, temp_band(t), door, door_band(door), mins, wh, "%d.%02d" % (per // 100, per % 100), ', 'int(int(r["cabin_temp_dc"]) > 80)])'), 'w.writerow([r["route"], r["seq"], d, r["pharmacy"], t, temp_band(t), door, door_band(door), mins, wh, "%d.%02d" % (per // 100, per % 100), int(int(r["cabin_temp_dc"]) > 80)])', "G4"),
+    ("cabin-temperature-leaks-the-label", "features_a.py",
+     [_x('minutes energy_wh wh_per_min exc', 'ursion".split())'), _x('"%d.%02d" % (per // 100, per % 100), ', 'int(int(r["cabin_temp_dc"]) > 80)])')],
+     ['minutes energy_wh wh_per_min excursion cabin_dc".split())', '"%d.%02d" % (per // 100, per % 100), int(int(r["cabin_temp_dc"]) > 80), r["cabin_temp_dc"]])'], "G4"),
 ]
 
 
@@ -190,11 +193,14 @@ def mutants(only=None):
             shutil.copytree(HERE, tree, ignore=shutil.ignore_patterns("__pycache__"))
             f = tree / rel
             text = f.read_text()
-            if text.count(old) != 1:
-                print("mutant %-48s CANNOT BE APPLIED (%d occurrences in %s)" % (name, text.count(old), rel))
+            pairs = list(zip(old, new)) if isinstance(old, list) else [(old, new)]
+            if any(text.count(o) != 1 for o, _ in pairs):
+                print("mutant %-48s CANNOT BE APPLIED (%s occurrences in %s)" % (name, [text.count(o) for o, _ in pairs], rel))
                 survived += 1
                 continue
-            f.write_text(text.replace(old, new))
+            for o, n_ in pairs:
+                text = text.replace(o, n_)
+            f.write_text(text)
             env = dict(os.environ, FLOW_REPO=str(pc.REPO), TABLE=pc.exe("table", "TABLE"), STATS=pc.exe("stats", "STATS"), ML=pc.exe("ml", "ML"), SOLVE=pc.exe("solve", "SOLVE"))
             r = subprocess.run([sys.executable, str(tree / "scripts" / "pipeline_a2.py")], capture_output=True, text=True, env=env, cwd=td, timeout=3600)
             out = r.stdout + r.stderr

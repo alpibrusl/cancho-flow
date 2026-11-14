@@ -707,3 +707,30 @@ size, and a linear-logistic model, which is nearly the form of the twin's probab
 
 **Options for the maintainer (none taken):** (1) leave the excursion model as a failed claim: a boost does not learn it from one year of stops; (2) switch the excursion model to logistic and write a new margin first (the unchanged 0.985 and 0.97 would do, and the model would be chosen from the *calibration* days, not the test days, but I have already seen the test numbers above and the
 margin would say so); (3) more stops (more days or pharmacies) for the boost, with a sizing in the margin.
+
+### U4b, G4b: the excursion model as logistic (2026-11-14) **[measured, once; holds]**
+
+*The margin G4b of section 7a was committed (`52c87ea`) before the logistic model was run through the pipeline; the family was chosen after the exploratory comparison above, on the test stops, and the document says so there and in G4b. One run of `scripts/pipeline_a2.py`, 22 recorded steps.*
+
+| claim | measured | margin | |
+|---|---|---|---|
+| G4 excursion: calibrated log loss against the constant model's (1,827 test stops) | 0.34545 against 0.35808: **0.9647** (uncalibrated 0.34445) | at most 0.985 | holds |
+| G4 excursion: against the true probabilities' (0.33958) | 1.0173 | at least 0.97 | holds |
+| G8: five groups, 365 rows each | predicted/observed 0.057/0.052, 0.067/0.071, 0.089/0.112, 0.107/0.151, 0.187/0.189; largest deviation **0.54** of its bound (0.48 uncalibrated) | within the bound | holds |
+| G4 energy (unchanged, not refitted) | 0.680 of the baseline, 1.715 of the floor | 0.80 and 0.95 | holds |
+| split hygiene, G7 | no shared row; 22 steps check clean, a changed byte is detected | | holds |
+
+The third and fourth groups are still under-predicted (0.089 against 0.112, 0.107 against 0.151); the bound at 365 rows allows it, and it is not a claim that the probabilities are calibrated beyond that bound.
+
+**Mutants of `pipeline_a2.py`: 4 killed, 2 not, both explained.**
+
+| mutant | result |
+|---|---|
+| a later day in the energy fit (fit to day 727) | killed by the split-hygiene check of G4 |
+| a later day in the excursion fit (2,993 shared rows) | killed by the split-hygiene check |
+| the distance dropped from the energy model | killed by G4 (MAE 7,353 Wh against a baseline of 1,610) |
+| the calibration inverted (`--decreasing`) | killed by G4 (log loss 0.43277 against 0.35808) |
+| the cabin temperature, which defines the excursion, leaked in as a feature | **stopped by `ml`, not by a gate:** the logistic fit is refused with `ml.fit.separable` (exit 8, "a hyperplane separates the classes"), so no G4 line is printed and the harness counts it as not killed by the gate aimed at. The refusal's own repair suggests `--l2 10`, which would take the leak past the tool; the floor check of G4 (a model below 0.97 of the true probabilities' log loss has seen something it should not) would be the gate then, and that run was not made |
+| the door information dropped from the excursion model (`door_min` and `minutes` both: the first version of this mutant dropped `door_min` alone and survived because `minutes` carries the door time through the service time) | **survived G4, and it should be said plainly:** the model on the temperature and the position alone has a calibrated log loss of 0.9676 of the constant model's (0.9647 with all four), inside the margin of 0.985. G4 does not test that the door minutes are used; that the doors matter is G2's claim (p = 2.4e-13), not this gate's |
+
+Two further faults of the harness were corrected on the way: the first version of the leak mutant changed nothing (its old and new text were the same) and the harness now takes a list of edits for a two-edit mutant.
