@@ -34,6 +34,7 @@ from twinlib.prng import SplitMix64  # noqa: E402  (the gate's own random number
 
 FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv", "truth/refill_hazard.csv")
 CORE_FILES = ("items.csv", "pharmacies.csv", "patients.csv", "truth.json")
+DELIVERY_FILES = ("trucks.csv", "locations.csv", "days.csv", "deliveries.csv", "routes.csv", "telemetry.csv", "depot.csv", "truth/energy_parts.csv", "truth/excursion.csv", "truth.json")
 
 
 def run(tree, args, cwd):
@@ -250,6 +251,164 @@ def check(tree, fast=False):
             if hi == 0 or lo == 0 or abs(hi / lo - want) > 0.2 * want:
                 problems.append("seasonal: %s demand at its peak week against half a year away is %s, the parameters say %.2f" % (g, ("%.2f" % (hi / lo)) if lo else "undefined", want))
 
+
+        # delivery (A's twin, G1 of the U4a margins): recounted from the CSVs; the truth files are read here, as the gates may
+        def gen_del(wfile, seed, size, out, tables="core,delivery"):
+            r = run(tree, ["generate", "--world", wfile, "--seed", str(seed), "--size", size, "--tables", tables, "--out", out], work)
+            if r.returncode != 0:
+                return None, r
+            return {f: (work / out / f).read_bytes() for f in DELIVERY_FILES}, r
+        dl, rdl = gen_del("world.json", 20261112, "small", "dl1")
+        if dl is None:
+            problems.append("delivery: the delivery tables did not run: %s" % rdl.stderr.strip()[-120:])
+        else:
+            dl2, _ = gen_del("world.json", 20261112, "small", "dl2")
+            if dl2 is None or any(dl[f] != dl2[f] for f in DELIVERY_FILES):
+                problems.append("delivery: two runs of the same world, seed and size differ")
+            dl3, _ = gen_del("world.json", 20261113, "small", "dl3")
+            if dl3 is not None and dl3["routes.csv"] == dl["routes.csv"]:
+                problems.append("delivery: another seed gives the same routes.csv")
+            P = {k: v["value"] for k, v in world["params"].items()}
+            trucks = {r["truck"]: int(r["battery_kwh"]) for r in table(dl["trucks.csv"])}
+            routes = table(dl["routes.csv"])
+            tele = table(dl["telemetry.csv"])
+            dels = table(dl["deliveries.csv"])
+            days = {int(r["day"]): int(r["outside_temp_c"]) for r in table(dl["days.csv"])}
+            parts = table(dl["truth/energy_parts.csv"])
+            exc = table(dl["truth/excursion.csv"])
+            dbad = {}
+            by_route = {}
+            for r in tele:
+                by_route.setdefault(r["route"], []).append(r)
+            if len(parts) != len(tele) or len(exc) != len(tele) or any((a_["route"], a_["seq"]) != (b_["route"], b_["seq"]) or (a_["route"], a_["seq"]) != (c_["route"], c_["seq"]) for a_, b_, c_ in zip(tele, parts, exc)):
+                dbad["rows"] = "telemetry.csv, truth/energy_parts.csv and truth/excursion.csv are not the same stops in the same order"
+            used, seen_del, truck_day = 0, {}, {}
+            for rt in routes:
+                rws = by_route.get(rt["route"], [])
+                if sum(int(x["energy_wh"]) for x in rws) != int(rt["energy_wh"]):
+                    dbad["energy"] = "route %s energy %s is not the sum of its stops' %d" % (rt["route"], rt["energy_wh"], sum(int(x["energy_wh"]) for x in rws))
+                if len(rws) != int(rt["stops"]) + 1 or not rws or rws[-1]["pharmacy"] != "DEPOT":
+                    dbad["stops"] = "route %s lists %d rows for %s stops and does not end at the depot" % (rt["route"], len(rws), rt["stops"])
+                for x in rws[:-1]:
+                    seen_del[(int(rt["day"]), x["pharmacy"])] = seen_del.get((int(rt["day"]), x["pharmacy"]), 0) + 1
+                k = (int(rt["day"]), rt["truck"])
+                truck_day[k] = truck_day.get(k, 0) + 1
+                if int(rt["energy_wh"]) > (trucks[rt["truck"]] - P["reserve_kwh"]) * 1000:
+                    used += 1
+                if int(rt["stops"]) > 3:
+                    dbad["max-stops"] = "route %s has %s stops" % (rt["route"], rt["stops"])
+                if int(rt["outside_temp_c"]) != days[int(rt["day"])]:
+                    dbad["temp"] = "route %s says %s degrees, days.csv says %d" % (rt["route"], rt["outside_temp_c"], days[int(rt["day"])])
+            if used:
+                dbad["battery"] = "%d routes need more than their truck's battery less the reserve" % used
+            if any(c > 1 for c in truck_day.values()):
+                dbad["truck-day"] = "a truck has two routes on one day"
+            want_del = {}
+            starts = {}
+            for d_ in dels:
+                key = (int(d_["day"]), d_["pharmacy"])
+                want_del[key] = want_del.get(key, 0) + 1
+                starts[key] = (int(d_["window_start_min"]), int(d_["window_end_min"]))
+            if seen_del != want_del:
+                dbad["cover"] = "the deliveries of deliveries.csv and the stops of routes.csv are not the same set, each once (%d against %d)" % (len(want_del), len(seen_del))
+            tmap = {}
+            for rt in routes:
+                for x in by_route.get(rt["route"], [])[:-1]:
+                    key = (int(rt["day"]), x["pharmacy"])
+                    if key in starts and int(x["arrive_min"]) < starts[key][0]:
+                        dbad["window"] = "route %s arrives at %s before the window opens at %d" % (rt["route"], x["arrive_min"], starts[key][0])
+                    if key in starts and int(x["window_end_min"]) != starts[key][1]:
+                        dbad["window-end"] = "route %s has window end %s, deliveries.csv says %d" % (rt["route"], x["window_end_min"], starts[key][1])
+            # the parts, recomputed from the parameters (the truth file is the twin's own account of the energy)
+            rday = {rt["route"]: days[int(rt["day"])] for rt in routes}
+            for x, pt, e in zip(tele, parts, exc):
+                T = rday[x["route"]]
+                door = int(x["door_open_min"])
+                km = int(x["km"])
+                fr = 1_000_000 + P["fridge_temp_ppm"] * max(0, T - 20) // 10
+                if int(pt["drive_wh"]) != km * P["drive_wh_per_km"]:
+                    dbad["drive"] = "%s %s: drive_wh %s is not km %d times %d" % (x["route"], x["seq"], pt["drive_wh"], km, P["drive_wh_per_km"])
+                if int(pt["fridge_wh"]) != P["fridge_w"] * int(x["minutes"]) * fr // (1_000_000 * 60):
+                    dbad["fridge"] = "%s %s: fridge_wh %s is not the formula's %d" % (x["route"], x["seq"], pt["fridge_wh"], P["fridge_w"] * int(x["minutes"]) * fr // (1_000_000 * 60))
+                if int(pt["door_wh"]) != (P["door_w"] * door // 60 if x["pharmacy"] != "DEPOT" else 0):
+                    dbad["door"] = "%s %s: door_wh %s is not the formula's" % (x["route"], x["seq"], pt["door_wh"])
+                total = int(pt["drive_wh"]) + int(pt["fridge_wh"]) + int(pt["door_wh"])
+                if abs(int(x["energy_wh"]) - total) > total * 25 // 100 + 20:
+                    dbad["noise"] = "%s %s: energy %s is more than 25 percent from its parts %d" % (x["route"], x["seq"], x["energy_wh"], total)
+                want_p = 0 if x["pharmacy"] == "DEPOT" else min(1_000_000, P["excursion_base_ppm"] + P["excursion_per_door_min_ppm"] * door + P["excursion_per_10c_ppm"] * max(0, T - 20) // 10)
+                if int(e["true_ppm"]) != want_p:
+                    dbad["hazard"] = "%s %s: true_ppm %s, the parameters give %d" % (x["route"], x["seq"], e["true_ppm"], want_p)
+                if (int(x["cabin_temp_dc"]) > 80) != (e["excursion"] == "1"):
+                    dbad["cabin"] = "%s %s: cabin %s tenths of a degree and excursion %s disagree" % (x["route"], x["seq"], x["cabin_temp_dc"], e["excursion"])
+            n_ex = sum(1 for e in exc if e["excursion"] == "1")
+            mu = sum(int(e["true_ppm"]) for e in exc) / 1e6
+            var = sum(int(e["true_ppm"]) / 1e6 * (1 - int(e["true_ppm"]) / 1e6) for e in exc)
+            if abs(n_ex - mu) > 5 * math.sqrt(var) + 1:
+                dbad["rate"] = "%d excursions against %.1f expected from the true probabilities" % (n_ex, mu)
+            rd = json.loads(dl["truth.json"]).get("delivery_realised", {})
+            if rd.get("routes") != len(routes) or rd.get("stops") != len(dels) or rd.get("excursions") != n_ex:
+                dbad["truth"] = "truth.json counts %s routes, %s stops and %s excursions, the files hold %d, %d and %d" % (rd.get("routes"), rd.get("stops"), rd.get("excursions"), len(routes), len(dels), n_ex)
+            depot = table(dl["depot.csv"])
+            if [int(r["cap_kw"]) for r in depot] != P["depot_cap_kw"] or [int(r["tariff_milli"]) for r in depot] != P["depot_tariff_milli"]:
+                dbad["depot"] = "depot.csv is not the cap and the tariff of the world file"
+            for k, v in dbad.items():
+                problems.append("delivery: %s: %s" % (k, v))
+            # the older tables are what they were: asking for delivery as well moves none of them
+            both, _ = gen_del("world.json", 20261112, "small", "dl4", "core,dispensing,refills,delivery")
+            older = {f: a[f] for f in FILES if f != "truth.json"}
+            r4 = {f: (work / "dl4" / f).read_bytes() for f in older if (work / "dl4" / f).exists()}
+            if r4 != older:
+                problems.append("delivery: asking for the delivery tables as well changes an older table (%s)" % ", ".join(sorted(f for f in older if r4.get(f) != older[f])))
+            # a world with tight batteries, so that the assignment of trucks to routes can fail: the costliest routes need the big batteries and the twin must give them
+            w3 = json.loads(json.dumps(world))
+            w3["params"]["truck_battery_kwh"]["value"] = [[70, 1], [120, 1]]
+            (work / "w_tight.json").write_text(json.dumps(w3))
+            dt, _ = gen_del("w_tight.json", 20261112, "large", "dtight")
+            if dt is not None:
+                tt = {r["truck"]: int(r["battery_kwh"]) for r in table(dt["trucks.csv"])}
+                over = [r["route"] for r in table(dt["routes.csv"]) if int(r["energy_wh"]) > (tt[r["truck"]] - P["reserve_kwh"]) * 1000]
+                big = sum(1 for r in table(dt["routes.csv"]) if int(r["energy_wh"]) > (70 - P["reserve_kwh"]) * 1000)
+                if over:
+                    problems.append("delivery: battery: with batteries of 70 and 120 kWh, %d routes (e.g. %s) need more than their truck holds less the reserve" % (len(over), over[0]))
+                if big == 0:
+                    problems.append("delivery: battery: with batteries of 70 and 120 kWh no route needs the big battery, so the check cannot fail")
+            # extremes
+            for ppm, want_n in ((0, 0), (1_000_000, n["pharmacies"] * n["weeks"] * 7)):
+                w2 = json.loads(json.dumps(world))
+                w2["params"]["delivery_prob_ppm"]["value"] = ppm
+                (work / "w_dp.json").write_text(json.dumps(w2))
+                dx, _ = gen_del("w_dp.json", 5, "small", "dx%d" % ppm)
+                if dx is not None and rows(dx["deliveries.csv"]) != want_n:
+                    problems.append("delivery: a delivery probability of %d ppm gave %d deliveries, wanted %d" % (ppm, rows(dx["deliveries.csv"]), want_n))
+            # refusals
+            for label, args, rule, wt in (
+                ("delivery-without-params", ["generate", "--world", "wnodel.json", "--seed", "1", "--size", "small", "--tables", "core,delivery", "--out", "rf1"], "twin.missing-param", None),
+                ("partial-group", ["generate", "--world", "wpart.json", "--seed", "1", "--size", "small", "--out", "rf2"], "twin.missing-param", None),
+                ("bad-hourly", ["generate", "--world", "wbad.json", "--seed", "1", "--size", "small", "--tables", "core,delivery", "--out", "rf3"], "twin.bad-param", None),
+            ):
+                w2 = json.loads(json.dumps(world))
+                if label == "delivery-without-params":
+                    from_keys = [k for k in w2["params"] if k in ("delivery_prob_ppm", "window_start_hours", "stop_service_minutes", "door_open_minutes", "speed_kmh", "drive_wh_per_km", "fridge_w", "fridge_temp_ppm", "door_w", "noise_ppm", "excursion_base_ppm", "excursion_per_door_min_ppm", "excursion_per_10c_ppm", "temp_mean_c", "temp_amplitude_c", "temp_noise_c", "warm_peak_week", "grid_km", "truck_battery_kwh", "reserve_kwh", "depot_cap_kw", "depot_tariff_milli")]
+                    for k in from_keys:
+                        w2["params"].pop(k)
+                    (work / "wnodel.json").write_text(json.dumps(w2))
+                elif label == "partial-group":
+                    w2["params"].pop("depot_tariff_milli")
+                    (work / "wpart.json").write_text(json.dumps(w2))
+                else:
+                    w2["params"]["depot_cap_kw"]["value"] = [1, 2, 3]
+                    (work / "wbad.json").write_text(json.dumps(w2))
+                r = run(tree, args, work)
+                err = r.stderr.strip().splitlines()
+                tag = None
+                if len(err) == 1:
+                    try:
+                        tag = json.loads(err[0])["error"]["rule"]
+                    except (ValueError, KeyError, TypeError):
+                        pass
+                if r.returncode != 2 or tag != rule or r.stdout or "Traceback" in r.stderr or (work / args[-1]).exists():
+                    problems.append("refusal: %s: exit %s, rule %s, wanted exit 2 and %s, and nothing written" % (label, r.returncode, tag, rule))
+
         # share: the large size, recounted from the CSV
         big, _ = gen(tree, work, "world.json", 20261112, "large", "big", "core")
         if big is not None:
@@ -371,7 +530,7 @@ MUTANTS = [
     ("eleven-uniforms", "twinlib/prng.py", "for _ in range(12)", "for _ in range(11)", "normal"),
     ("dotdot-allowed", "twin.py", 'or ".." in out.replace("\\\\", "/").split("/")', "", "refusal"),
     ("streams-shared", "twinlib/prng.py", 'return SplitMix64(int.from_bytes(h[:8], "big"))', "return self", "independence"),
-    ("unknown-param-allowed", "twinlib/world.py", "if k not in PARAMS:", "if False:", "refusal"),
+    ("unknown-param-allowed", "twinlib/world.py", "if k not in PARAMS and k not in DELIVERY_PARAMS:", "if False:", "refusal"),
     ("python-random", "twinlib/core.py", '1 + r.below(p["regions"])', '1 + __import__("random").randrange(p["regions"])', "determinism"),
     ("poisson-mean-ignored", "twinlib/prng.py", "lam = Decimal(mean_milli) / Decimal(1000)", "lam = Decimal(3)", "poisson"),
     ("season-ignored", "twinlib/core.py", 'seas = season_ppm(week, p["season_peak_week"][g], p["season_amplitude_ppm"][g])', "seas = 1_000_000", "seasonal"),
@@ -384,11 +543,22 @@ MUTANTS = [
     ("refills-after-a-lapse", "twinlib/core.py", "                if lapse:\n                    lapses += 1\n                    break\n", "                if lapse:\n                    lapses += 1\n", "refills"),
     ("wrong-home-pharmacy", "twinlib/core.py", "rows.append((pid, it, home, w, interval, seen, int(not lapse)))", 'rows.append((pid, it, "P001", w, interval, seen, int(not lapse)))', "refills"),
     ("hazard-file-omits-copay", "twinlib/core.py", "                hazards.append((pid, it, w, chance))", "                hazards.append((pid, it, w, chance - p[\"lapse_copay_ppm\"][COPAY_BANDS.index(copay)]))", "refills"),
+    ("door-minutes-ignored", "twinlib/delivery.py", 'p["excursion_base_ppm"] + p["excursion_per_door_min_ppm"] * door + p', 'p["excursion_base_ppm"] + p', "delivery"),
+    ("fridge-temperature-ignored", "twinlib/delivery.py", 'fridge_wh = p["fridge_w"] * elapsed * fridge_ppm // (1_000_000 * 60)', 'fridge_wh = p["fridge_w"] * elapsed * 1_000_000 // (1_000_000 * 60)', "delivery"),
+    ("route-energy-off-by-one", "twinlib/delivery.py", "routes.append((name, d, tr[0], len(rows) - 1, km, energy, DAY_START_MIN, T))", "routes.append((name, d, tr[0], len(rows) - 1, km, energy + 1, DAY_START_MIN, T))", "delivery"),
+    ("stop-lost", "twinlib/delivery.py", "chunk = todays[i:i + MAX_STOPS]", "chunk = todays[i:i + MAX_STOPS - 1]", "delivery"),
+    ("truck-used-twice", "twinlib/delivery.py", "for k, ti in zip(order, free):", "for k, ti in zip(order, free[:1] * len(order)):", "delivery"),
+    ("window-ignored", "twinlib/delivery.py", "arrive = max(t + travel, s)", "arrive = t + travel", "delivery"),
+    ("biggest-battery-last", "twinlib/delivery.py", "free = sorted(range(len(trucks)), key=lambda k: (-trucks[k][1], k))", "free = sorted(range(len(trucks)), key=lambda k: (trucks[k][1], k))", "delivery"),
+    ("excursion-never", "twinlib/delivery.py", "ex = int(rx.bernoulli(prob))", "ex = 0", "delivery"),
+    ("depot-columns-swapped", "twinlib/delivery.py", '(h, p["depot_cap_kw"][h], p["depot_tariff_milli"][h])', '(h, p["depot_tariff_milli"][h], p["depot_cap_kw"][h])', "delivery"),
+    ("door-energy-dropped", "twinlib/delivery.py", "raw = drive_wh + fridge_wh + door_wh", "raw = drive_wh + fridge_wh", "delivery"),
+    ("delivery-ignores-the-probability", "twinlib/delivery.py", 'if rd.bernoulli(p["delivery_prob_ppm"]):', "if rd.bernoulli(500000):", "delivery"),
     ("wrong-generator-constant", "twinlib/prng.py", "0x9E3779B97F4A7C15", "0x9E3779B97F4A7C16", "known-answer"),
 ]
 
 
-def mutants():
+def mutants(only=()):
     base = check(HERE)
     if base:
         print("control FAILED (the unmodified twin is refused):")
@@ -398,6 +568,8 @@ def mutants():
     print("control passes")
     survived = 0
     for name, rel, old, new, want in MUTANTS:
+        if only and name not in only:
+            continue
         with tempfile.TemporaryDirectory() as td:
             tree = pathlib.Path(td) / "t"
             shutil.copytree(HERE, tree, ignore=shutil.ignore_patterns("__pycache__", "scripts", "*.pyc"))
@@ -421,7 +593,7 @@ def mutants():
 
 def main():
     if "--mutants" in sys.argv:
-        return mutants()
+        return mutants(tuple(a for a in sys.argv[sys.argv.index("--mutants") + 1:] if not a.startswith("--")))
     problems = check(HERE)
     for p in problems:
         print("check_twin: " + p)

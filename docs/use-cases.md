@@ -592,3 +592,37 @@ runs into proved optima, and cut the time at D = 14 from 165 to 177 s to 78 to 9
 
 **What this does not show.** Random instances, one pool rule, one set of constants, one machine; no time against any other solver; and that a model with another structure (a flow formulation, a column-generation loop in a program with
 `solve` as the master) would not do better. Reported in cancho-solve issue 3 (comment).
+
+### U4a: A's twin; G1 holds, G2 holds on two of three effects and FAILS on the temperature effect on excursions (2026-11-14)
+
+*Code: `twinlib/delivery.py`, `features_a.py`, `scripts/pipeline_a.py`, the delivery checks of `scripts/check_twin.py`, and 22 new parameters in `world.json` (all `choice`). The margins G1 and G2 for A are those of section 7a, committed
+(`fba93b0`) before the delivery tables were written. Same machine as before; the twin builds the large size's delivery tables (7,295 deliveries in 2,663 routes, 9,959 telemetry rows) in 0.5 s.*
+
+**The twin.** Trucks (10 at the large size, 4 batteries drawn from 80, 100 and 120 kWh), pharmacies placed on a 20 km square with the depot at the corner, a daily outside temperature (a seasonal triangle plus noise), up to one delivery a day per pharmacy
+(probability 0.5) with a two-hour window, routes of at most 3 stops in the order of their window ends, the biggest battery to the costliest route, and per-stop energy (driving + refrigeration raised per degree above 20 + doors) with a 4 percent noise. The
+analysis side sees the energy, the minutes, the door minutes, the cabin temperature and the day's temperature; the parts and the excursion probability are written to `truth/`. Asking for the delivery tables moves no older table (checked byte for byte), and
+the delivery parameters are a group that is all or none.
+
+**G1 [measured, passes].** `scripts/check_twin.py`: determinism, another seed, the energy of a route equal to the sum of its stops' (exactly), each delivery in exactly one route, no truck twice on a day, every route within its truck's battery less the
+reserve (0 violations), arrival no earlier than the window opens, the parts of every stop recomputed from the parameters, the true excursion probability of every stop recomputed, the realised excursions within 5 standard deviations of the sum of those probabilities, the
+depot file equal to the world file, the extremes (delivery probability 0 and 1,000,000), three refusals with their rule tags. **33 of 33 mutants killed** (22 old and 11 new). Two survivors came up on the first run and were both faults of the harness, not of the twin: one mutant
+could no longer be applied because I had changed the text it targets in `world.json`'s parser (updated), and `biggest-battery-last` survived because at these parameters every route fits every truck (the largest route needs 68.4 kWh, the smallest battery leaves 65 for it), so
+the battery check could not fail. A second world with batteries of 70 and 120 kWh was added to the check (101 routes would exceed their truck under the mutant); the check also fails if no route needs the big battery.
+
+**G2 [measured, once, on the large size].**
+
+| effect | in the twin | in the control (the term set to zero) | margin | |
+|---|---|---|---|---|
+| refrigeration: energy per minute, hot (at or above 25) against cool (at or below 15) days | p = 5.6e-7; hot minus cool = 8.88 Wh per minute (153.92 against 145.04) | p = 0.210 | p < 1e-6 and positive; control p >= 1e-3 | holds, **by a factor of 1.8** |
+| doors: excursion against the door-open band | p = 2.0e-21 | p = 0.952 | p < 1e-6; control p >= 1e-3 | holds |
+| heat: excursion against the temperature band | **p = 0.18** | p = 0.148 | p < 1e-6; control p >= 1e-3 | **FAILS** (the effect was not found) |
+
+**The failure, and what it is.** The twin does what it says: in the same run, the excursion rates by band are 0.0766 (cool), 0.0705 (mild) and 0.0865 (hot) observed, against 0.0722, 0.0764 and 0.0994 expected from the true probabilities, within 1.7 standard deviations each. The
+temperature term adds only 2.5 points of probability on hot days (0.04 per 10 degrees, with a base of 7 percent from the doors), and a chi-square over 7,295 stops with 3 bands cannot see that: from the true probabilities the non-centrality is about 10.6, and p < 1e-6 on 2 degrees of freedom
+needs a statistic of 27.6, so **the margin could not have been met even on typical data** (the expected statistic is about 12.6, a p of about 0.002). That is a mistake in the margin, made without a power calculation, not a property of the twin or of `stats`. It is reported as failed, **the
+margin is not moved, and no stronger coefficient has been tried**. The refrigeration margin passing by a factor of 1.8 is also a thin pass of the same kind.
+
+**Options, for the maintainer to choose (none taken):** (1) leave G2 for heat as failed and say that this effect is below what the size can show; (2) make the effect a stated, larger choice (for example 0.15 per 10 degrees, about 9 points on hot days) and write a new margin for it before running, saying that it was made after this failure; (3) more days or more
+pharmacies (a size change), with a power calculation in the margin this time.
+
+**Not run.** The mutants of `pipeline_a.py` (5 are written) were not run: they need a control whose G2 passes, and this one fails on the heat effect, so their "killed by a G2 line" would mean nothing. They run once G2 is settled.
