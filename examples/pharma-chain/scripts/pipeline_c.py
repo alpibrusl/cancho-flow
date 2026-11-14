@@ -45,7 +45,7 @@ class Flow:
         self.tmp = pathlib.Path(tmp)
         prog = self.tmp / "programs"
         prog.mkdir()
-        for name, path in (("python3", shutil.which("python3")), ("table", exe("table", "TABLE")), ("stats", exe("stats", "STATS")), ("ml", exe("ml", "ML")), ("solve", exe("solve", "SOLVE"))):
+        for name, path in (("python3", shutil.which("python3")), ("table", exe("table", "TABLE")), ("stats", exe("stats", "STATS")), ("ml", exe("ml", "ML")), ("solve", exe("solve", "SOLVE")), ("opt", exe("opt", "OPT"))):
             os.symlink(path, prog / name)
         for b in ("flow", "flow-records"):
             r = subprocess.run([sys.executable, str(REPO / "scripts" / "flow_build.py"), "--programs", str(prog), "--out", str(self.tmp / b), "--bin", b], capture_output=True, text=True)
