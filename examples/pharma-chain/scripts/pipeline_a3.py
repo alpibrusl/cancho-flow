@@ -234,7 +234,7 @@ def judge_decision(fl):
         t1["x"]["charge[0,%d]" % t] = 0.0
         t1["x"]["on[0,%d]" % t] = 0.0
     t2 = json.loads(json.dumps(plan))
-    tt = next(t for t in range(T0) if plan["x"]["charge[0,%d]" % t] > 0)
+    tt = next((t for t in range(T0) if plan["x"]["charge[0,%d]" % t] > 0), 0)  # a plan that charges nothing (a mutant that dropped the need) must not crash the gate
     t2["x"]["charge[0,%d]" % tt] = float(PM + 1)
     t3 = json.loads(json.dumps(plan))
     early_slot = next(t for t in range(T0) if not dj["avail"][1 * T0 + t]) if V0 > 1 and any(not dj["avail"][1 * T0 + t] for t in range(T0)) else None
@@ -327,7 +327,7 @@ MUTANTS = [
     ("tariff-hour-off-by-one", "build_charging.py", _x('"price": [price_by_hour[(h0 + t) ', '% 24] for t in range(T)]'), '"price": [price_by_hour[(h0 + t + 1) % 24] for t in range(T)]', "G6"),
     ("safety-zero", "charging.json", _x('"safety_kwh": ', '3.0'), '"safety_kwh": 0.0', "G11"),
     ("need-from-the-baseline-prediction", "build_charging.py", _x('col = "pred_', 'boost_wh"'), 'col = "pred_base_wh"', "G11"),
-    ("need-wrong-in-the-model-text-only", "build_charging.py", _x('param need = %s;\\nparam avail = %s;\\n" % (arr(d["price"]), arr(d["cap"]), arr(', 'd["need"])'), 'param need = %s;\\nparam avail = %s;\\n" % (arr(d["price"]), arr(d["cap"]), arr([x + 1.0 for x in d["need"]])', "G5"),
+    ("need-wrong-in-the-model-text-only", "build_charging.py", _x('arr(d["cap"]), arr(d["ne', 'ed"]), arr(d["avail"]))'), 'arr(d["cap"]), arr([x + 1.0 for x in d["need"]]), arr(d["avail"]))', "G5"),
     ("chargers-row-dropped", "build_charging.py", _x('    t += "    forall t in 0..T: chargers_free: sum v in 0..V: on[v,t] <= %d', ';\\n" % d["chargers"]'), '    t += ""', "G6"),
     ("objective-ignores-the-doors", "objective_a.py", _x('+ int(r["door_min"]) * door_w', ' / 60.0'), '+ 0 * door_w', "G12"),
     ("opt-stops-early", "scripts/pipeline_a3.py", _x('OPT_MAXFEV = "', '4000"'), 'OPT_MAXFEV = "40"', "G12"),
