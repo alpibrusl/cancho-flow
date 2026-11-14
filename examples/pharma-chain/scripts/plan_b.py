@@ -34,6 +34,7 @@ G9_VS_BASELINE_MIN = 1.25
 G9_EXPECTED_VS_TRUE = 0.10
 G9_BINDING_SHARE = 0.5
 EPS = 1e-6
+STRIDE = int(os.environ.get("PLAN_B_STRIDE", "1"))
 NODE_LIMIT = 20000  # `flow` ends a step at its deadline and a few decisions take longer than that to prove (measured: 2 of 1,040 past 20 s): a node limit is how the search ends instead
 
 
@@ -42,6 +43,8 @@ def run_plan(fl):
     # G7 is judged inside pb.judge over every step recorded so far, the outreach steps included. The cells: the home pharmacy of each event due in the test weeks (patients.csv is what the pharmacy knows)
     home = {r["patient"]: r["home_pharmacy"] for r in pc.table(fl.read("data_main/patients.csv"))}
     cells = sorted({(int(r["due_week"]), home[r["patient"]]) for r in pc.table(fl.read("test_cal.csv"))})
+    if STRIDE > 1:  # mutant runs only (PLAN_B_STRIDE): every STRIDE-th decision, so that a run ends in minutes; the control of the same stride must pass the same gates
+        cells = cells[::STRIDE]
     ins = ["build_outreach.py", "test_cal.csv", "data_main/patients.csv", "outreach.json"]
     for w, p in cells:
         b = "models/W%d_%s" % (w, p)
