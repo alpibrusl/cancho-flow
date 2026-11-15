@@ -200,8 +200,11 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
     # ---- G23 ----
     for s in seeds:
         dd = base / ("D_%d" % s) / "data"
+        def upto(path):
+            return [r for r in table(str(path)) if int(r["week"]) <= end]  # an arm run to week END is compared with D's weeks 0 to END (all of them when END is the last week)
+
         def same(arm, f):
-            return (base / ("%s_%d" % (arm, s)) / "root" / "data" / f).read_bytes() == (dd / f).read_bytes()
+            return upto(base / ("%s_%d" % (arm, s)) / "root" / "data" / f) == upto(dd / f)
         bad = []
         if "B" in arms and (not same("B", "dispensing.csv") or not same("B", "truth/demand.csv")):
             bad.append("arm B's stock differs from D's")

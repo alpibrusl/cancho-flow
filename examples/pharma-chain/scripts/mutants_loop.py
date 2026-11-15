@@ -63,7 +63,9 @@ def run(name, arm, work, dpath, py):
     r = subprocess.run([sys.executable, str(root / "scripts" / "closed_loop.py"), "--arm", arm, "--seed", str(SEED), "--out", str(out / ("%s_%d" % (arm, SEED))), "--first", str(FIRST), "--last", str(LAST), "--end", str(END)],
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
-        return (r.stdout + r.stderr).strip()[-300:], "", None
+        import re
+        rules = re.findall(r'"rule":"([A-Za-z0-9_.-]+)"', r.stdout + r.stderr)
+        return ("rule " + ", ".join(sorted(set(rules))) if rules else (r.stdout + r.stderr).strip()[-300:]), "", None
     code = "import sys,pathlib; sys.path.insert(0,%r); import experiment; sys.exit(experiment.judge([%d], pathlib.Path(%r), %d, %d, %d, arms=(%r,), with_claims=False))" % (str(HERE / "scripts"), SEED, str(out), FIRST, LAST, END, arm)
     j = subprocess.run([py, "-c", code], capture_output=True, text=True, env=env)
     return None, j.stdout, j.returncode
