@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The replenishment decision as a model for `solve` (docs/use-cases.md section 4.1, step 4).
 
-    python3 build_models.py [--only WEEK:PHARMACY] DATA_DIR TEST.csv PRED.json COSTS.json OUT_DIR
+    python3 build_models.py [--only WEEK:PHARMACY] [--lapse LAPSE.json] DATA_DIR TEST.csv PRED.json COSTS.json OUT_DIR
 
 For every pharmacy and every held-out week it writes OUT_DIR/models/W<week>_<pharmacy>.sol (the model, in the language of `solve`) and .json (the same
 numbers as data, which the oracles read: they never parse the model text), and OUT_DIR/models/index.csv. It reads the forecast of `ml predict` and what the
@@ -31,22 +31,57 @@ def arr(xs):
     return "[" + ", ".join(num(x) if isinstance(x, float) else str(x) for x in xs) + "]"
 
 
-def instance(items, forecast, stock, cap_cold, cap_shelf, costs):
+def lapse_quantiles(z0, f, pen, events, lapse, over):
+    """The quantile of each item's target when a stockout costs lapses (U8): z0 plus the newsvendor quantile of (penalty + lapse cost per unit) less that of the penalty alone, capped. Returns (z list, lapse cost per unit short list)."""
+    from statistics import NormalDist
+    inv = NormalDist().inv_cdf
+    cost, ppm, window, cap = lapse["cost"]["value"], lapse["ppm"]["value"], lapse["window_weeks"]["value"], lapse["z_cap"]["value"]
+    zs, ls = [], []
+    for fi, pi, ev in zip(f, pen, events):
+        li = ev * window * (ppm / 1000000.0) * cost / max(fi, 1.0)
+        r0, r1 = pi / (pi + over), (pi + li) / (pi + li + over)
+        zs.append(min(z0 + (inv(r1) - inv(r0)), cap))
+        ls.append(li)
+    return zs, ls
+
+
+def events_per_week(path, week, history):
+    """Refill events a week of each (pharmacy, item): the rows of refills.csv due in the `history` weeks before `week`, over `history`."""
+    counts = {}
+    with open(path, newline="") as f:
+        rd = csv.reader(f)
+        head = next(rd)
+        ph, it, dw = head.index("pharmacy"), head.index("item"), head.index("due_week")
+        for r in rd:
+            if week - history <= int(r[dw]) <= week - 1:
+                counts[(r[ph], r[it])] = counts.get((r[ph], r[it]), 0) + 1
+    return {k: v / history for k, v in counts.items()}
+
+
+def instance(items, forecast, stock, cap_cold, cap_shelf, costs, lapse=None, events=None):
     """The data of one decision. items: list of dicts (pack, cold, critical, controlled, shelf_weeks); forecast and stock: lists aligned with items."""
     z = costs["z_milli"]["value"] / 1000.0
     f = [max(0.0, x) for x in forecast]
-    target = [fi + z * (max(fi, 1.0) ** 0.5) for fi in f]
+    pen = [costs["penalty_per_unit_short_critical"]["value"] if it["critical"] else costs["penalty_per_unit_short"]["value"] for it in items]
+    zs, ls = [z] * len(f), [0.0] * len(f)
+    if lapse is not None:
+        zs, ls = lapse_quantiles(z, f, pen, events, lapse, costs["waste_per_unit"]["value"] + costs["holding_per_unit"]["value"])
+    target = [fi + zi * (max(fi, 1.0) ** 0.5) for fi, zi in zip(f, zs)]
     cover = [min(52, it["shelf_weeks"]) * fi for it, fi in zip(items, f)]
     room_cold = max(0, cap_cold - sum(s for it, s in zip(items, stock) if it["cold"]))
     room_shelf = max(0, cap_shelf - sum(s for it, s in zip(items, stock) if not it["cold"]))
-    return {
+    d = {
         "n": len(items), "f": f, "target": target, "cover": cover, "stock": list(stock),
         "pack": [it["pack"] for it in items], "cold": [it["cold"] for it in items], "controlled": [it["controlled"] for it in items],
-        "pen": [costs["penalty_per_unit_short_critical"]["value"] if it["critical"] else costs["penalty_per_unit_short"]["value"] for it in items],
+        "pen": pen,
         "waste": costs["waste_per_unit"]["value"], "holding": costs["holding_per_unit"]["value"],
         "qmax": [costs["controlled_max_packs"]["value"] if it["controlled"] else costs["max_packs"]["value"] for it in items],
         "room_cold": room_cold, "room_shelf": room_shelf, "cap_cold": cap_cold, "cap_shelf": cap_shelf,
     }
+    if lapse is not None:
+        d["lapse"] = {"cost": lapse["cost"]["value"], "ppm": lapse["ppm"]["value"], "window": lapse["window_weeks"]["value"], "history": lapse["history_weeks"]["value"], "cap": lapse["z_cap"]["value"],
+                      "ev": events, "l": ls, "z": zs}
+    return d
 
 
 def model_text(d):
@@ -75,9 +110,13 @@ def read(path):
 
 
 def main(argv):
-    only = None
-    if len(argv) >= 2 and argv[0] == "--only":
-        only, argv = argv[1], argv[2:]
+    only, lapse = None, None
+    while len(argv) >= 2 and argv[0] in ("--only", "--lapse"):
+        if argv[0] == "--only":
+            only = argv[1]
+        else:
+            lapse = json.load(open(argv[1]))
+        argv = argv[2:]
     if len(argv) != 5:
         sys.stderr.write('{"ok":false,"error":{"rule":"plan.usage","message":"build_models.py DATA_DIR TEST.csv PRED.json COSTS.json OUT_DIR","repair":"give the five operands"}}\n')
         return 2
@@ -91,6 +130,7 @@ def main(argv):
     items = {r["item"]: r for r in read(os.path.join(data, "items.csv"))}
     phs = {r["pharmacy"]: r for r in read(os.path.join(data, "pharmacies.csv"))}
     stock_end = {(r["pharmacy"], r["item"], int(r["week"])): int(r["stock_end"]) for r in read(os.path.join(data, "dispensing.csv"))}
+    epw = {}
     cells = {}
     for r, p in zip(test, pred):
         cells.setdefault((int(r["week"]), r["pharmacy"]), []).append((r["item"], p))
@@ -105,7 +145,12 @@ def main(argv):
         its = [{"pack": int(items[i]["pack_size"]), "cold": int(items[i]["cold_chain"]), "critical": int(items[i]["critical"]), "controlled": int(items[i]["controlled"]),
                 "shelf_weeks": int(items[i]["shelf_life_days"]) // 7} for i, _ in cs]
         stock = [stock_end[(ph, i, week - 1)] for i, _ in cs]
-        d = instance(its, [p for _, p in cs], stock, int(phs[ph]["cold_capacity_units"]), int(phs[ph]["shelf_capacity_units"]), costs)
+        events = None
+        if lapse is not None:
+            if week not in epw:
+                epw[week] = events_per_week(os.path.join(data, "refills.csv"), week, lapse["history_weeks"]["value"])
+            events = [epw[week].get((ph, i), 0.0) for i, _ in cs]
+        d = instance(its, [p for _, p in cs], stock, int(phs[ph]["cold_capacity_units"]), int(phs[ph]["shelf_capacity_units"]), costs, lapse, events)
         d["week"], d["pharmacy"], d["items"] = week, ph, [i for i, _ in cs]
         base = os.path.join(out, "models", "W%d_%s" % (week, ph))
         with open(base + ".sol", "w", newline="\n") as f:

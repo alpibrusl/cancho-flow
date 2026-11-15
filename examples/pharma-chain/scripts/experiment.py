@@ -166,6 +166,12 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
                 fj = json.loads((root / fitj).read_text())["data"]
                 if hashlib.sha256((root / mfile).read_bytes()).hexdigest() != fj["sha256"]:
                     leak.append("%s is not the model its fit printed" % mfile)
+        if name[:2] in ("CL", "TL"):  # U8: G24 on every plan, from the arm's final tables
+            import check_lapse
+            costs_, lapse_ = json.loads((HERE / "costs.json").read_text()), json.loads((HERE / "lapse.json").read_text())
+            n24, p24 = check_lapse.check_plans(str(root / "c" / "models"), str(root / "data"), costs_, lapse_)
+            report.append("G24 %s: the lapse term recomputed for %d plans: %s" % (name, n24, "all agree" if not p24 else "%d differ" % len(p24)))
+            problems += ["%s: %s" % (name, x) for x in p24]
         report.append("G21 %s: %d plans, %d not verified, %d stopped at the node limit; decisions against plans: %d weeks differ; models: %s" % (name, nplans, nbad, nstopped, mism, "; ".join(leak) or "fitted once on weeks up to %d" % cl.FIT_THROUGH))
         if nbad:
             problems.append("G21: %s: %d plans are not verified" % (name, nbad))
@@ -218,10 +224,11 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
             ra, rd_ = table(str(base / ("%s_%d" % (arm, s)) / "root" / "data" / "refills.csv")), table(str(dd / "refills.csv"))
             if [r for r in ra if int(r["due_week"]) <= first] != [r for r in rd_ if int(r["due_week"]) <= first]:
                 bad.append("arm %s differs from D in the refills due up to week %d" % (arm, first))
-        for arm, want_orders in [x for x in (("C", True), ("B", False), ("T", True)) if x[0] in arms]:
+        for arm in arms:
+            want_orders = arm[0] in ("C", "T")
             for w in range(first, last + 1):
                 doc = json.loads((base / ("%s_%d" % (arm, s)) / "root" / "decisions" / ("week-%d.json" % w)).read_text())
-                if bool(doc.get("orders")) != want_orders or (arm != "C" and not doc.get("outreach")):
+                if bool(doc.get("orders")) != want_orders or (arm[0] != "C" and not doc.get("outreach")):
                     bad.append("arm %s week %d: the decisions file has the wrong parts" % (arm, w))
                     break
         report.append("G23 seed %d: %s" % (s, "arms are what they claim (B's stock and all demand equal D's; no difference before week %d; the decisions files have the right parts)" % first if not bad else "; ".join(bad)))
@@ -257,7 +264,7 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
         print(p)
     if problems:
         return 1
-    print("experiment: ok (G21 to G23 and the four claims hold)")
+    print("experiment: ok (G21 to G23 and the four claims hold)" if with_claims else "experiment: ok (the gates hold for arms %s)" % ", ".join(arms))
     return 0
 
 

@@ -1,0 +1,9 @@
+{
+  "schema": "plan.lapse.v1",
+  "note": "The lapse cost of the replenishment decision (docs/use-cases.md section 7a, U8). Every value is a stylised choice of the example, not read from a pharmacy. The planner is GIVEN the coupling (ppm and window), as it is given the outreach uplifts.",
+  "cost": {"value": 100, "source": "choice", "note": "the cost of one lapse, in the units of penalty_per_unit_short: a lapse ends a patient's series (10.7 refills on average), taken as one unit each at the shortage penalty of 10"},
+  "ppm": {"value": 150000, "source": "choice", "note": "the twin's lapse_stockout_ppm, given to the planner"},
+  "window_weeks": {"value": 4, "source": "choice", "note": "the twin's stockout_window_weeks, given to the planner"},
+  "history_weeks": {"value": 8, "source": "choice", "note": "the weeks of refill events, up to the decision week, from which the events a week of an item are counted"},
+  "z_cap": {"value": 3.5, "source": "choice", "note": "the highest quantile the target may be raised to"}
+}

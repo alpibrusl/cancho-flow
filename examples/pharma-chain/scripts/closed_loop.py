@@ -27,7 +27,7 @@ FULL = "core,dispensing,refills,delivery,coupled"
 OUTS = ["items.csv", "pharmacies.csv", "patients.csv", "truth.json", "dispensing.csv", "truth/demand.csv", "refills.csv", "truth/refill_hazard.csv", "trucks.csv", "locations.csv", "days.csv", "deliveries.csv",
         "routes.csv", "telemetry.csv", "depot.csv", "truth/energy_parts.csv", "truth/excursion.csv", "truth/coupling.csv"]
 TWINX = pa.TWIN + ["twinlib/step.py", "twinlib/decisions.py"]
-HELPERS = ("features_b.py", "features_next.py", "events_next.py", "pred_join.py", "apply_isotonic.py", "build_models.py", "build_outreach.py", "verify_input.py", "plan_decisions.py", "costs.json", "outreach.json")
+HELPERS = ("features_b.py", "features_next.py", "events_next.py", "pred_join.py", "apply_isotonic.py", "build_models.py", "build_outreach.py", "verify_input.py", "plan_decisions.py", "costs.json", "outreach.json", "lapse.json")
 TB = ["table", "--root", ".", "--format", "csv", "--limit", "1000000", "--out"]
 NODE_LIMIT = "20000"
 C_FIT_FROM, B_FIT_BEFORE = 38, 64     # fitted once, on what is known through week 89 (the week before the first decision)
@@ -63,12 +63,12 @@ def prep(fl, seed, arm):
     """The models, fitted once on the world through week 89."""
     pa.world(fl, "main", None)
     twin_step(fl, seed, FIT_THROUGH, [])
-    if arm in ("C", "T"):
+    if arm[0] in ("C", "T"):
         fl.step(["features.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv"], ["c_feat.csv"], ["python3", "features.py", "data", "c_feat.csv"])
         fl.step(["c_feat.csv"], ["c_train.csv"], TB + ["c_train.csv", "--where", "week:int >= %d and week:int <= %d" % (C_FIT_FROM, FIT_THROUGH), "c_feat.csv"])
         fl.step(["c_train.csv"], ["c_model.ml"], ["ml", "--root", ".", "--model", "boost", "--cat", "group,season", "--step", "encode column=group,season kind=onehot", "--target", "units", "--drop", "pharmacy,item,week",
                                                    "--output", "c_model.ml", "fit", "c_train.csv"], stdout_file="c_fit.json")
-    if arm in ("B", "T"):
+    if arm[0] in ("B", "T"):
         fl.step(["features_b.py", "data/refills.csv", "data/patients.csv"], ["b_events.csv"], ["python3", "features_b.py", "data", "b_events.csv"])
         fl.step(["b_events.csv"], ["b_fit.csv"], TB + ["b_fit.csv", "--where", "due_week:int < %d" % B_FIT_BEFORE, "b_events.csv"])
         fl.step(["b_events.csv"], ["b_cal.csv"], TB + ["b_cal.csv", "--where", "due_week:int >= %d and due_week:int <= %d" % (B_FIT_BEFORE, FIT_THROUGH), "b_events.csv"])
@@ -79,15 +79,15 @@ def prep(fl, seed, arm):
         fl.step(["b_pred_cal.csv"], [], ["ml", "--root", ".", "--x-col", "p", "--y-col", "lapsed", "isotonic", "b_pred_cal.csv"], stdout_file="b_iso.json")
 
 
-def decide_c(fl, w):
+def decide_c(fl, w, lapse=False):
     """The replenishment plans for week w+1, from the world through week w."""
     fl.step(["features_next.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv"], ["c_next.csv"], ["python3", "features_next.py", "data", "c_next.csv"])
     fl.step(["c_model.ml", "c_next.csv"], [], ["ml", "--root", ".", "--model-file", "c_model.ml", "--drop", "pharmacy,item,week", "--limit", "6000", "predict", "c_next.csv"], stdout_file="c_pred.json")
     phs = sorted({r["pharmacy"] for r in pc.table(fl.read("c_next.csv"))})
     for ph in phs:
         b = "c/models/W%d_%s" % (w + 1, ph)
-        fl.step(["build_models.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv", "c_next.csv", "c_pred.json", "costs.json"], [b + ".sol", b + ".json"],
-                ["python3", "build_models.py", "--only", "%d:%s" % (w + 1, ph), "data", "c_next.csv", "c_pred.json", "costs.json", "c"])
+        fl.step(["build_models.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv", "c_next.csv", "c_pred.json", "costs.json"] + (["lapse.json", "data/refills.csv"] if lapse else []), [b + ".sol", b + ".json"],
+                ["python3", "build_models.py", "--only", "%d:%s" % (w + 1, ph)] + (["--lapse", "lapse.json"] if lapse else []) + ["data", "c_next.csv", "c_pred.json", "costs.json", "c"])
         solve_chain(fl, b)
     fl.step(["plan_decisions.py"] + ["c/models/W%d_%s.%s" % (w + 1, ph, e) for ph in phs for e in ("json", "plan.json")], ["c_dec.json"], ["python3", "plan_decisions.py", "c", str(w), ".", "c_dec.json"])
 
@@ -125,10 +125,10 @@ def run_arm(arm, seed, out, first=90, last=101, end=103):
         fl.rec = "rec/w%d" % w
         twin_step(fl, seed, w, decided)
         parts = []
-        if arm in ("C", "T"):
-            decide_c(fl, w)
+        if arm[0] in ("C", "T"):
+            decide_c(fl, w, arm.endswith("L"))
             parts.append("c_dec.json")
-        if arm in ("B", "T"):
+        if arm[0] in ("B", "T"):
             decide_b(fl, w)
             parts.append("b_dec.json")
         fl.step(["plan_decisions.py"] + parts, ["decisions/week-%d.json" % w], ["python3", "plan_decisions.py", "merge", str(w), "decisions/week-%d.json" % w] + parts)
@@ -145,8 +145,8 @@ def main(argv):
     def arg(name, default=None):
         return argv[argv.index(name) + 1] if name in argv else default
     arm, seed, out = arg("--arm"), arg("--seed"), arg("--out")
-    if arm not in ("C", "B", "T") or not seed or not out:
-        sys.stderr.write("closed_loop.py --arm C|B|T --seed N --out DIR [--first 90 --last 101 --end 103]\n")
+    if arm not in ("C", "B", "T", "CL", "TL") or not seed or not out:
+        sys.stderr.write("closed_loop.py --arm C|B|T|CL|TL --seed N --out DIR [--first 90 --last 101 --end 103]\n")
         return 2
     run_arm(arm, int(seed), out, int(arg("--first", 90)), int(arg("--last", 101)), int(arg("--end", 103)))
     return 0
