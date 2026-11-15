@@ -1,0 +1,32 @@
+G21 B_1: 240 plans, 0 not verified, 4 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 B_1: flow-records check clean on all 1053 records of 1053 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 B_20261112: 240 plans, 0 not verified, 3 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 B_20261112: flow-records check clean on all 1053 records of 1053 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 C_1: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 C_1: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 C_20261112: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 C_20261112: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 T2_20261112: 480 plans, 0 not verified, 5 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 T2_20261112: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 T_1: 480 plans, 0 not verified, 15 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 T_1: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 T_20261112: 480 plans, 0 not verified, 5 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 T_20261112: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G22 two independent runs of arm T, seed 20261112: the final tables equal, the decisions equal, the records equal
+G23 seed 20261112: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+G23 seed 1: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763, units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm C: orders 204500 units (weeks 90-101), stockout cells 11369, units short 93639, written off 4563, events 24546, lapses 2049 (weeks 91-103)
+seed 20261112 arm B: orders 306630 units (weeks 90-101), stockout cells 2763, units short 19488, written off 13723, events 25147, lapses 1180 (weeks 91-103)
+seed 20261112 arm T: orders 204500 units (weeks 90-101), stockout cells 11369, units short 93639, written off 4563, events 24873, lapses 1634 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226, units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm C: orders 197840 units (weeks 90-101), stockout cells 12836, units short 115901, written off 4120, events 25708, lapses 2142 (weeks 91-103)
+seed 1 arm B: orders 327850 units (weeks 90-101), stockout cells 2226, units short 15519, written off 12340, events 26543, lapses 1135 (weeks 91-103)
+seed 1 arm T: orders 197840 units (weeks 90-101), stockout cells 12836, units short 115901, written off 4120, events 26024, lapses 1740 (weeks 91-103)
+CLAIM 1 (C orders at most 0.95 of D's units): seed 20261112: 0.667; seed 1: 0.603 -> holds on every seed
+CLAIM 2 (C has at least 1.5 times D's stockout cells): seed 20261112: 4.115; seed 1: 5.766 -> holds on every seed
+CLAIM 3 (C has at least 1.05 times D's lapses): seed 20261112: 1.366; seed 1: 1.552 -> holds on every seed
+CLAIM 4 (B has at most 0.90 of D's lapses): seed 20261112: 0.787; seed 1: 0.822 -> holds on every seed
+T (reported, not claimed), seed 20261112: lapses 1634 against D's 1500 (+8.9%), stockout cells 11369 against 2763, orders 204500 against 306630
+T (reported, not claimed), seed 1: lapses 1740 against D's 1380 (+26.1%), stockout cells 12836 against 2226, orders 197840 against 327850
+experiment: ok (G21 to G23 and the four claims hold)
