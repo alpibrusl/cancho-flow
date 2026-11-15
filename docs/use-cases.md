@@ -923,7 +923,7 @@ Two faults of the harness came up on the first run of the mutants and were corre
 
 **What this does not show.** The stepped twin is built and equal to the batch twin; decisions have their named effects. The planners do not yet decide inside it (U7b), and no plan has been compared with the pharmacy's own policy (U7c). The whole check takes about 9 minutes (the equality in nine configurations and 300 fuzzed runs). Replaying from week 0 to the week asked is how a loop would use it (`--through`); there is no saved state.
 
-### U7b and U7c: the loop with decisions, and the experiment (2026-11-15) **[measured; G21 to G23 and claims (1) to (4) hold; mutants of the loop not yet run]**
+### U7b and U7c: the loop with decisions, and the experiment (2026-11-15) **[measured; G21 to G23 and claims (1) to (4) hold; 7 of 7 mutants of the loop killed]**
 
 *Code: `scripts/closed_loop.py` (one arm), `features_next.py`, `events_next.py`, `plan_decisions.py`, `scripts/experiment.py` (the four arms, the judge); the output of the judge is kept in `docs/experiment-u7c.log`. The margins (G21 to G23, claims (1) to (5)) were committed before any of this was written (`b139834`).* Seeds 20261112 and 1, size large, decisions at the ends of weeks 90 to 101, outcomes over weeks 91 to 103, arms D (the batch twin), C, B and T; arm T of seed 20261112 ran twice. 4-core machine, nine processes at once, **about 28 minutes** from start to the last line of the judge.
 
@@ -950,4 +950,17 @@ Two faults of the harness came up on the first run of the mutants and were corre
 
 **What this shows and does not show.** In the world of the twin, with the plans as built (stylised costs, a replenishment plan that accepts shortage and does not see the lapses a stockout causes), the loop closes: decisions enter the world, have the effects U7a named, and the outcomes differ as the claims said. The replenishment plan **orders a third to two fifths less than the pharmacies' rule and pays for it in stockouts and, through the coupling, in lapses**; the outreach plan avoids 18 to 21 percent of D's lapses. The two plans are not combined well: T is worse than the twin's own policy on lapses. That is a finding about these plans and these costs, not about replenishment or outreach in general; the lapse term is not in the replenishment objective, and putting it there is the obvious next change, which has not been tried. The numbers are those of two seeds of one synthetic world; the effect sizes are not estimates of anything real, and no claim is made that the tools beat the pharmacy's policy. The charging decisions (A) were not exercised in the loop, as stated in section 7a.
 
-**Mutants of the loop: not yet run** (the seven listed in section 7a). They are the next step; this section is corrected in place when they are.
+**Mutants of the loop: 7 of 7 killed** (`scripts/mutants_loop.py`, the seven of section 7a). Each is a one-line change to a copy of the example, run as a short arm (decisions at the ends of weeks 90 and 91, outcomes through week 93, seed 20261112) and judged by G21 to G23 without the claims, which need the whole horizon; D's tables are those of the experiment. *The first run of the mutants was void and is not counted:* its controls (the unmutated arms C and B) were reported not clean, because the judge compared a run that ends at week 93 with D's 104 weeks; the judge now compares the weeks the arm covers (the full experiment's verdicts and numbers are unchanged by that), and the controls are clean. In the second run both controls are clean and:
+
+| mutant | killed by |
+|---|---|
+| the decisions of a week written under the next week's number | the twin: `twin.decision-week`, the run stops |
+| P001's orders written under P002 and the reverse | G21: two weeks of decisions differ from their plans (the twin accepted the files) |
+| a model fitted with week 90 in its data | G21: `c_train.csv` holds a week after 89 |
+| the names of the actions `call` and `reminder` swapped | G21: two weeks of decisions differ from their plans |
+| orders not multiplied by the pack size | the twin: `twin.decision-pack`, the run stops |
+| the outreach part left out of the merge (arm B would equal D) | G21 (decisions differ from plans) and G23 (the decisions file has the wrong parts) |
+| a clock in a decisions file | the twin: `twin.decision-week` (a member the file may not have), the run stops |
+
+*What the last row does not show:* G22's own clause about a clock (equal bytes in two runs) is not what killed it; the twin refuses the foreign member first, so that clause has not been shown able to fail by this mutant (the second run of arm T being equal is the evidence for it, not a killed mutant). Three of the seven are killed by the twin's own refusals rather than by the loop's gates; the other four are killed by the judge. The reasons for the three stopped runs were read afterwards by running the twin on the mutant's `week-90.json`, since the `flow` record keeps only the hash of a program's standard error.
+
