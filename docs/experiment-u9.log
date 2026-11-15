@@ -1,0 +1,51 @@
+G24 CLR_1: the lapse term recomputed for 240 plans: all agree
+G27 CLR_1: 240 plans, 0 with a room row or without no_room
+G21 CLR_1: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CLR_1: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 CLR_20261112: the lapse term recomputed for 240 plans: all agree
+G27 CLR_20261112: 240 plans, 0 with a room row or without no_room
+G21 CLR_20261112: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CLR_20261112: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G27 CR_1: 240 plans, 0 with a room row or without no_room
+G21 CR_1: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CR_1: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G27 CR_20261112: 240 plans, 0 with a room row or without no_room
+G21 CR_20261112: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CR_20261112: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 TLR_1: the lapse term recomputed for 240 plans: all agree
+G27 TLR_1: 240 plans, 0 with a room row or without no_room
+G21 TLR_1: 480 plans, 0 not verified, 4 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 TLR_1: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 TLR_20261112: the lapse term recomputed for 240 plans: all agree
+G27 TLR_20261112: 240 plans, 0 with a room row or without no_room
+G21 TLR_20261112: 480 plans, 0 not verified, 3 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 TLR_20261112: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G23 seed 20261112: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+G23 seed 1: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763, units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm CR: orders 310240 units (weeks 90-101), stockout cells 2309, units short 16748, written off 15013, events 24916, lapses 1478 (weeks 91-103)
+seed 20261112 arm CLR: orders 311470 units (weeks 90-101), stockout cells 2202, units short 16350, written off 14813, events 24938, lapses 1438 (weeks 91-103)
+seed 20261112 arm TLR: orders 311480 units (weeks 90-101), stockout cells 2201, units short 16340, written off 14813, events 25156, lapses 1143 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226, units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm CR: orders 328500 units (weeks 90-101), stockout cells 2007, units short 15196, written off 13160, events 26319, lapses 1369 (weeks 91-103)
+seed 1 arm CLR: orders 330340 units (weeks 90-101), stockout cells 1928, units short 14940, written off 13310, events 26340, lapses 1341 (weeks 91-103)
+seed 1 arm TLR: orders 330340 units (weeks 90-101), stockout cells 1928, units short 14940, written off 13310, events 26553, lapses 1106 (weeks 91-103)
+experiment: ok (the gates hold for arms CR, CLR, TLR)
+CLAIM R1 (CR has at most 0.85 of C's stockout cells): seed 20261112: 0.203; seed 1: 0.156 -> holds on every seed
+CLAIM R2 (CR has at most 0.50 of C's cold-chain stockout cells): seed 20261112: 0.227; seed 1: 0.245 -> holds on every seed
+CLAIM R3 (CR has at most 0.95 of C's lapses): seed 20261112: 0.721; seed 1: 0.639 -> holds on every seed
+CLAIM R4 (CLR has at most 0.97 of CR's lapses): seed 20261112: 0.973; seed 1: 0.980 -> FAILS
+CLAIM R5 (TLR has at most 1.00 of D's lapses): seed 20261112: 0.762; seed 1: 0.801 -> holds on every seed
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763 (cold-chain 1323), units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm C: orders 204500 units (weeks 90-101), stockout cells 11369 (cold-chain 4299), units short 93639, written off 4563, events 24546, lapses 2049 (weeks 91-103)
+seed 20261112 arm CL: orders 204780 units (weeks 90-101), stockout cells 11235 (cold-chain 4285), units short 93882, written off 4533, events 24562, lapses 2010 (weeks 91-103)
+seed 20261112 arm CR: orders 310240 units (weeks 90-101), stockout cells 2309 (cold-chain 977), units short 16748, written off 15013, events 24916, lapses 1478 (weeks 91-103)
+seed 20261112 arm CLR: orders 311470 units (weeks 90-101), stockout cells 2202 (cold-chain 946), units short 16350, written off 14813, events 24938, lapses 1438 (weeks 91-103)
+seed 20261112 arm TLR: orders 311480 units (weeks 90-101), stockout cells 2201 (cold-chain 946), units short 16340, written off 14813, events 25156, lapses 1143 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226 (cold-chain 1069), units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm C: orders 197840 units (weeks 90-101), stockout cells 12836 (cold-chain 3330), units short 115901, written off 4120, events 25708, lapses 2142 (weeks 91-103)
+seed 1 arm CL: orders 197320 units (weeks 90-101), stockout cells 12733 (cold-chain 3314), units short 116730, written off 4010, events 25731, lapses 2092 (weeks 91-103)
+seed 1 arm CR: orders 328500 units (weeks 90-101), stockout cells 2007 (cold-chain 815), units short 15196, written off 13160, events 26319, lapses 1369 (weeks 91-103)
+seed 1 arm CLR: orders 330340 units (weeks 90-101), stockout cells 1928 (cold-chain 808), units short 14940, written off 13310, events 26340, lapses 1341 (weeks 91-103)
+seed 1 arm TLR: orders 330340 units (weeks 90-101), stockout cells 1928 (cold-chain 808), units short 14940, written off 13310, events 26553, lapses 1106 (weeks 91-103)
+experiment_room: gates hold, 1 of 5 claims fail

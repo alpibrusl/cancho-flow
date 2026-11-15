@@ -234,12 +234,13 @@ def figures(bindir, extra):
     m_py = re.search(r"`python3` [\d.]+ s \((\d+) percent\)", uc)
     m_loop = re.search(r"\*\*Mutants of the loop: (\d+) of (\d+) killed\*\*", uc)
     m_t = re.search(r"T has \*\*more lapses than D, by ([\d.]+) percent and ([\d.]+) percent\*\*", uc)
+    m_r = re.search(r"TLR has 0\.\d+ and 0\.\d+ of D's lapses, which is (\d+) and (\d+) percent fewer", uc)
     m_b = re.search(r"B has ([\d.]+) and ([\d.]+) of D's lapses", uc) or re.search(r"B has (0\.\d+) and (0\.\d+) of D's lapses", uc)
     twin = (ROOT / "examples" / "pharma-chain" / "scripts" / "check_twin.py").read_text()
     block = twin.split("MUTANTS = [", 1)[1].split("\n]\n", 1)[0] if "MUTANTS = [" in twin else ""
     uc_figs = {"uc_steps": m_steps.group(1) if m_steps else "?", "uc_seconds": m_secs.group(1) if m_secs else "?", "uc_python": m_py.group(1) if m_py else "?",
                "uc_twin_mutants": str(len(re.findall(r'^    \("', block, re.M))),
-               "uc_loop_mutants": m_loop.group(1) if m_loop else "?", "uc_t_a": m_t.group(1) if m_t else "?", "uc_t_b": m_t.group(2) if m_t else "?",
+               "uc_loop_mutants": m_loop.group(1) if m_loop else "?", "uc_tlr_a": m_r.group(1) if m_r else "?", "uc_tlr_b": m_r.group(2) if m_r else "?", "uc_t_a": m_t.group(1) if m_t else "?", "uc_t_b": m_t.group(2) if m_t else "?",
                "uc_b_a": str(round((1 - float(m_b.group(1))) * 100)) if m_b else "?", "uc_b_b": str(round((1 - float(m_b.group(2))) * 100)) if m_b else "?"}
     figs = {"damaged": m.group(1), "fixtures": str(len(re.findall(r'^    f\["', gates, re.M))), "mutants": str(len(re.findall(r"^    \(", mut, re.M))),
             "rules": str(len(rules)), "labels_flow": str(labels["flow"]), "labels_records": str(labels["flow-records"])}
