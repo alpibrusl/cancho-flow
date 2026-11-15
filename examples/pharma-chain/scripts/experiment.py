@@ -95,17 +95,17 @@ def main(argv):
     return judge(seeds, base, first, last, end)
 
 
-def judge(seeds, base, first, last, end):
+def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True):
     problems, report = [], []
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
     res = {}
     for s in seeds:
         dd = base / ("D_%d" % s) / "data"
         res[(s, "D")] = outcomes(dd, first, last, end)
-        for a in ("C", "B", "T"):
+        for a in arms:
             res[(s, a)] = outcomes(base / ("%s_%d" % (a, s)) / "root" / "data", first, last, end)
     # ---- G21 ----
-    for name in sorted(p.name for p in base.iterdir() if p.is_dir() and p.name[0] in "CBT"):  # C_*, B_*, T_*, T2_*
+    for name in sorted(p.name for p in base.iterdir() if p.is_dir() and p.name[0] in "".join(arms)):  # C_*, B_*, T_*, T2_*
         root = base / name / "root"
         arm = name[0]
         nplans = nbad = nstopped = 0
@@ -203,11 +203,11 @@ def judge(seeds, base, first, last, end):
         def same(arm, f):
             return (base / ("%s_%d" % (arm, s)) / "root" / "data" / f).read_bytes() == (dd / f).read_bytes()
         bad = []
-        if not same("B", "dispensing.csv") or not same("B", "truth/demand.csv"):
+        if "B" in arms and (not same("B", "dispensing.csv") or not same("B", "truth/demand.csv")):
             bad.append("arm B's stock differs from D's")
-        if not same("C", "truth/demand.csv") or not same("T", "truth/demand.csv"):
+        if any(not same(a_, "truth/demand.csv") for a_ in arms):
             bad.append("the demand differs between arms")
-        for arm in ("C", "B", "T"):
+        for arm in arms:
             a_ = table(str(base / ("%s_%d" % (arm, s)) / "root" / "data" / "dispensing.csv"))
             d_ = table(str(dd / "dispensing.csv"))
             if any(x != y for x, y in zip(a_, d_) if int(x["week"]) < first):
@@ -215,7 +215,7 @@ def judge(seeds, base, first, last, end):
             ra, rd_ = table(str(base / ("%s_%d" % (arm, s)) / "root" / "data" / "refills.csv")), table(str(dd / "refills.csv"))
             if [r for r in ra if int(r["due_week"]) <= first] != [r for r in rd_ if int(r["due_week"]) <= first]:
                 bad.append("arm %s differs from D in the refills due up to week %d" % (arm, first))
-        for arm, want_orders in (("C", True), ("B", False), ("T", True)):
+        for arm, want_orders in [x for x in (("C", True), ("B", False), ("T", True)) if x[0] in arms]:
             for w in range(first, last + 1):
                 doc = json.loads((base / ("%s_%d" % (arm, s)) / "root" / "decisions" / ("week-%d.json" % w)).read_text())
                 if bool(doc.get("orders")) != want_orders or (arm != "C" and not doc.get("outreach")):
@@ -226,11 +226,11 @@ def judge(seeds, base, first, last, end):
             problems.append("G23: seed %d: %s" % (s, "; ".join(bad)))
     # ---- outcomes and claims ----
     for s in seeds:
-        for a in ("D", "C", "B", "T"):
+        for a in ("D",) + tuple(arms):
             o = res[(s, a)]
             report.append("seed %d arm %s: orders %d units (weeks %d-%d), stockout cells %d, units short %d, written off %d, events %d, lapses %d (weeks %d-%d)" % (
                 s, a, o["orders_units"], first, last, o["stockout_cells"], o["units_short"], o["written_off"], o["events"], o["lapses"], first + 1, end))
-    claims = (("1", "C orders at most %.2f of D's units" % CLAIM1, lambda c, d, b, t: c["orders_units"] <= CLAIM1 * d["orders_units"], lambda c, d, b, t: c["orders_units"] / d["orders_units"]),
+    claims = () if not with_claims else (("1", "C orders at most %.2f of D's units" % CLAIM1, lambda c, d, b, t: c["orders_units"] <= CLAIM1 * d["orders_units"], lambda c, d, b, t: c["orders_units"] / d["orders_units"]),
               ("2", "C has at least %.1f times D's stockout cells" % CLAIM2, lambda c, d, b, t: c["stockout_cells"] >= CLAIM2 * d["stockout_cells"], lambda c, d, b, t: c["stockout_cells"] / d["stockout_cells"]),
               ("3", "C has at least %.2f times D's lapses" % CLAIM3, lambda c, d, b, t: c["lapses"] >= CLAIM3 * d["lapses"], lambda c, d, b, t: c["lapses"] / d["lapses"]),
               ("4", "B has at most %.2f of D's lapses" % CLAIM4, lambda c, d, b, t: b["lapses"] <= CLAIM4 * d["lapses"], lambda c, d, b, t: b["lapses"] / d["lapses"]))
@@ -244,7 +244,7 @@ def judge(seeds, base, first, last, end):
         report.append("CLAIM %s (%s): %s -> %s" % (cid, text, "; ".join(parts), "holds on every seed" if ok else "FAILS"))
         if not ok:
             problems.append("CLAIM %s: %s does not hold on every seed (%s)" % (cid, text, "; ".join(parts)))
-    for s in seeds:
+    for s in (seeds if with_claims else ()):
         d, t = res[(s, "D")], res[(s, "T")]
         report.append("T (reported, not claimed), seed %d: lapses %d against D's %d (%+.1f%%), stockout cells %d against %d, orders %d against %d" % (
             s, t["lapses"], d["lapses"], 100.0 * (t["lapses"] - d["lapses"]) / d["lapses"], t["stockout_cells"], d["stockout_cells"], t["orders_units"], d["orders_units"]))
