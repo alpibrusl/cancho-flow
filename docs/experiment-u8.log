@@ -1,0 +1,35 @@
+G24 CL_1: the lapse term recomputed for 240 plans: all agree
+G21 CL_1: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CL_1: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 CL_20261112: the lapse term recomputed for 240 plans: all agree
+G21 CL_20261112: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 CL_20261112: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 TL_1: the lapse term recomputed for 240 plans: all agree
+G21 TL_1: 480 plans, 0 not verified, 9 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 TL_1: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G24 TL_20261112: the lapse term recomputed for 240 plans: all agree
+G21 TL_20261112: 480 plans, 0 not verified, 6 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 TL_20261112: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G23 seed 20261112: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+G23 seed 1: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763, units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm CL: orders 204780 units (weeks 90-101), stockout cells 11235, units short 93882, written off 4533, events 24562, lapses 2010 (weeks 91-103)
+seed 20261112 arm TL: orders 204780 units (weeks 90-101), stockout cells 11236, units short 93894, written off 4533, events 24885, lapses 1603 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226, units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm CL: orders 197320 units (weeks 90-101), stockout cells 12733, units short 116730, written off 4010, events 25731, lapses 2092 (weeks 91-103)
+seed 1 arm TL: orders 197320 units (weeks 90-101), stockout cells 12734, units short 116732, written off 4010, events 26043, lapses 1701 (weeks 91-103)
+experiment: ok (the gates hold for arms CL, TL)
+CLAIM L1 (CL has at most 0.95 of C's stockout cells): seed 20261112: 0.988; seed 1: 0.992 -> FAILS
+CLAIM L2 (CL has at most 0.97 of C's lapses): seed 20261112: 0.981; seed 1: 0.977 -> FAILS
+CLAIM L3 (TL has at most 1.00 of D's lapses): seed 20261112: 1.069; seed 1: 1.233 -> FAILS
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763, units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm C: orders 204500 units (weeks 90-101), stockout cells 11369, units short 93639, written off 4563, events 24546, lapses 2049 (weeks 91-103)
+seed 20261112 arm CL: orders 204780 units (weeks 90-101), stockout cells 11235, units short 93882, written off 4533, events 24562, lapses 2010 (weeks 91-103)
+seed 20261112 arm T: orders 204500 units (weeks 90-101), stockout cells 11369, units short 93639, written off 4563, events 24873, lapses 1634 (weeks 91-103)
+seed 20261112 arm TL: orders 204780 units (weeks 90-101), stockout cells 11236, units short 93894, written off 4533, events 24885, lapses 1603 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226, units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm C: orders 197840 units (weeks 90-101), stockout cells 12836, units short 115901, written off 4120, events 25708, lapses 2142 (weeks 91-103)
+seed 1 arm CL: orders 197320 units (weeks 90-101), stockout cells 12733, units short 116730, written off 4010, events 25731, lapses 2092 (weeks 91-103)
+seed 1 arm T: orders 197840 units (weeks 90-101), stockout cells 12836, units short 115901, written off 4120, events 26024, lapses 1740 (weeks 91-103)
+seed 1 arm TL: orders 197320 units (weeks 90-101), stockout cells 12734, units short 116732, written off 4010, events 26043, lapses 1701 (weeks 91-103)
+experiment_lapse: gates hold, 3 of 3 claims fail

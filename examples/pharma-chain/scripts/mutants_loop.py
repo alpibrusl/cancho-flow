@@ -29,6 +29,7 @@ MUTANTS = {
     "actions-swapped": ("B", "plan_decisions.py", 'KINDS = (("call", "xc"), ("reminder", "xr")', 'KINDS = (("reminder", "xc"), ("call", "xr")', "the names of two outreach actions swapped"),
     "no-pack": ("C", "plan_decisions.py", '"units": d["pack"][i] * int(round(plan["x"]["q[%d]" % i]))', '"units": int(round(plan["x"]["q[%d]" % i]))', "orders not multiplied by the pack size"),
     "no-outreach-in-merge": ("B", "scripts/closed_loop.py", '            parts.append("b_dec.json")', "            pass", "arm B would equal D"),
+    "lapse-flag-dropped": ("CL", "scripts/closed_loop.py", '(["--lapse", "lapse.json"] if lapse else [])', "[]", "arm CL would be arm C (G24: no lapse member)"),
     "clock-in-decisions": ("B", "plan_decisions.py", 'doc = {"week": week}', 'doc = {"week": week, "clock": __import__("time").time()}', "a time in a decisions file (G22)"),
 }
 # the second edit of a mutant that needs two
@@ -87,7 +88,7 @@ def main(argv):
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
     base = pathlib.Path(arg("--out") or tempfile.mkdtemp(prefix="mutants_loop_"))
     base.mkdir(parents=True, exist_ok=True)
-    todo = [("control-" + a, None, a) for a in ("C", "B")] + [(n, n, MUTANTS[n][0]) for n in (names or MUTANTS)]
+    todo = [("control-" + a, None, a) for a in ("C", "B", "CL")] + [(n, n, MUTANTS[n][0]) for n in (names or MUTANTS)]
     if not names:
         pass
     results = {}
@@ -110,7 +111,7 @@ def main(argv):
             print("%s: %s" % (label, "clean (no problem reported), as a control must be" if ok else "NOT CLEAN: %s" % (stopped or out[-300:])))
             bad += 0 if ok else 1
         else:
-            probs = [ln for ln in out.splitlines() if ln[:4] in ("G21:", "G22:", "G23:")]
+            probs = [ln for ln in out.splitlines() if ln.startswith("G2") or ": G2" in ln]
             if stopped is not None:
                 print("%s: KILLED, the run stopped: %s" % (label, stopped.replace("\n", " ")[-200:]))
             elif rc != 0:
@@ -119,7 +120,7 @@ def main(argv):
                 print("%s: SURVIVED (%s)" % (label, MUTANTS[label][4]))
                 bad += 1
     print("mutants_loop: %d of %d mutants killed, controls %s" % (sum(1 for l, m, a in todo if m and (results[l][0] is not None or results[l][2] != 0)), sum(1 for l, m, a in todo if m),
-                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ("C", "B")) else "NOT CLEAN"))
+                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ("C", "B", "CL")) else "NOT CLEAN"))
     return 1 if bad else 0
 
 
