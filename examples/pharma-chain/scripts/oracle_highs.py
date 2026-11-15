@@ -38,7 +38,7 @@ def main(argv):
             rows.append(r); lo.append(d["target"][i] - d["stock"][i]); hi.append(np.inf)
             r = np.zeros(3 * m); r[2 * m + i] = 1.0; r[i] = -d["pack"][i]
             rows.append(r); lo.append(d["stock"][i] - d["cover"][i]); hi.append(np.inf)
-        for flag, room in ((1, d["room_cold"]), (0, d["room_shelf"])):
+        for flag, room in (() if d.get("no_room") else ((1, d["room_cold"]), (0, d["room_shelf"]))):
             r = np.zeros(3 * m)
             for i in range(m):
                 if d["cold"][i] == flag:

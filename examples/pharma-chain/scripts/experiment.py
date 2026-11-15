@@ -172,6 +172,16 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
             n24, p24 = check_lapse.check_plans(str(root / "c" / "models"), str(root / "data"), costs_, lapse_)
             report.append("G24 %s: the lapse term recomputed for %d plans: %s" % (name, n24, "all agree" if not p24 else "%d differ" % len(p24)))
             problems += ["%s: %s" % (name, x) for x in p24]
+        if "R" in name.split("_")[0][1:]:  # U9: G27 on every plan: no room row in the model text, and `no_room` in its data
+            n27 = bad27 = 0
+            for sf in sorted((root / "c" / "models").glob("W*_P*.sol")):
+                n27 += 1
+                dj = json.loads(sf.with_suffix(".json").read_text())
+                if any(l.startswith(("    coldroom:", "    shelfroom:")) for l in sf.read_text().splitlines()) or dj.get("no_room") is not True:
+                    bad27 += 1
+            report.append("G27 %s: %d plans, %d with a room row or without no_room" % (name, n27, bad27))
+            if bad27 or not n27:
+                problems.append("G27: %s: %d of %d plans have a room row or lack no_room" % (name, bad27, n27))
         report.append("G21 %s: %d plans, %d not verified, %d stopped at the node limit; decisions against plans: %d weeks differ; models: %s" % (name, nplans, nbad, nstopped, mism, "; ".join(leak) or "fitted once on weeks up to %d" % cl.FIT_THROUGH))
         if nbad:
             problems.append("G21: %s: %d plans are not verified" % (name, nbad))

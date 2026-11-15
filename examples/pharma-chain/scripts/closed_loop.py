@@ -79,7 +79,7 @@ def prep(fl, seed, arm):
         fl.step(["b_pred_cal.csv"], [], ["ml", "--root", ".", "--x-col", "p", "--y-col", "lapsed", "isotonic", "b_pred_cal.csv"], stdout_file="b_iso.json")
 
 
-def decide_c(fl, w, lapse=False):
+def decide_c(fl, w, lapse=False, no_room=False):
     """The replenishment plans for week w+1, from the world through week w."""
     fl.step(["features_next.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv"], ["c_next.csv"], ["python3", "features_next.py", "data", "c_next.csv"])
     fl.step(["c_model.ml", "c_next.csv"], [], ["ml", "--root", ".", "--model-file", "c_model.ml", "--drop", "pharmacy,item,week", "--limit", "6000", "predict", "c_next.csv"], stdout_file="c_pred.json")
@@ -87,7 +87,7 @@ def decide_c(fl, w, lapse=False):
     for ph in phs:
         b = "c/models/W%d_%s" % (w + 1, ph)
         fl.step(["build_models.py", "data/dispensing.csv", "data/items.csv", "data/pharmacies.csv", "c_next.csv", "c_pred.json", "costs.json"] + (["lapse.json", "data/refills.csv"] if lapse else []), [b + ".sol", b + ".json"],
-                ["python3", "build_models.py", "--only", "%d:%s" % (w + 1, ph)] + (["--lapse", "lapse.json"] if lapse else []) + ["data", "c_next.csv", "c_pred.json", "costs.json", "c"])
+                ["python3", "build_models.py", "--only", "%d:%s" % (w + 1, ph)] + (["--lapse", "lapse.json"] if lapse else []) + (["--no-room"] if no_room else []) + ["data", "c_next.csv", "c_pred.json", "costs.json", "c"])
         solve_chain(fl, b)
     fl.step(["plan_decisions.py"] + ["c/models/W%d_%s.%s" % (w + 1, ph, e) for ph in phs for e in ("json", "plan.json")], ["c_dec.json"], ["python3", "plan_decisions.py", "c", str(w), ".", "c_dec.json"])
 
@@ -126,7 +126,7 @@ def run_arm(arm, seed, out, first=90, last=101, end=103):
         twin_step(fl, seed, w, decided)
         parts = []
         if arm[0] in ("C", "T"):
-            decide_c(fl, w, arm.endswith("L"))
+            decide_c(fl, w, "L" in arm[1:], "R" in arm[1:])
             parts.append("c_dec.json")
         if arm[0] in ("B", "T"):
             decide_b(fl, w)
@@ -145,8 +145,8 @@ def main(argv):
     def arg(name, default=None):
         return argv[argv.index(name) + 1] if name in argv else default
     arm, seed, out = arg("--arm"), arg("--seed"), arg("--out")
-    if arm not in ("C", "B", "T", "CL", "TL") or not seed or not out:
-        sys.stderr.write("closed_loop.py --arm C|B|T|CL|TL --seed N --out DIR [--first 90 --last 101 --end 103]\n")
+    if arm not in ("C", "B", "T", "CL", "TL", "CR", "CLR", "TLR") or not seed or not out:
+        sys.stderr.write("closed_loop.py --arm C|B|T|CL|TL|CR|CLR|TLR --seed N --out DIR [--first 90 --last 101 --end 103]\n")
         return 2
     run_arm(arm, int(seed), out, int(arg("--first", 90)), int(arg("--last", 101)), int(arg("--end", 103)))
     return 0

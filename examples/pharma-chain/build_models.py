@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The replenishment decision as a model for `solve` (docs/use-cases.md section 4.1, step 4).
 
-    python3 build_models.py [--only WEEK:PHARMACY] [--lapse LAPSE.json] DATA_DIR TEST.csv PRED.json COSTS.json OUT_DIR
+    python3 build_models.py [--only WEEK:PHARMACY] [--lapse LAPSE.json] [--no-room] DATA_DIR TEST.csv PRED.json COSTS.json OUT_DIR
 
 For every pharmacy and every held-out week it writes OUT_DIR/models/W<week>_<pharmacy>.sol (the model, in the language of `solve`) and .json (the same
 numbers as data, which the oracles read: they never parse the model text), and OUT_DIR/models/index.csv. It reads the forecast of `ml predict` and what the
@@ -58,7 +58,7 @@ def events_per_week(path, week, history):
     return {k: v / history for k, v in counts.items()}
 
 
-def instance(items, forecast, stock, cap_cold, cap_shelf, costs, lapse=None, events=None):
+def instance(items, forecast, stock, cap_cold, cap_shelf, costs, lapse=None, events=None, no_room=False):
     """The data of one decision. items: list of dicts (pack, cold, critical, controlled, shelf_weeks); forecast and stock: lists aligned with items."""
     z = costs["z_milli"]["value"] / 1000.0
     f = [max(0.0, x) for x in forecast]
@@ -78,6 +78,8 @@ def instance(items, forecast, stock, cap_cold, cap_shelf, costs, lapse=None, eve
         "qmax": [costs["controlled_max_packs"]["value"] if it["controlled"] else costs["max_packs"]["value"] for it in items],
         "room_cold": room_cold, "room_shelf": room_shelf, "cap_cold": cap_cold, "cap_shelf": cap_shelf,
     }
+    if no_room:
+        d["no_room"] = True
     if lapse is not None:
         d["lapse"] = {"cost": lapse["cost"]["value"], "ppm": lapse["ppm"]["value"], "window": lapse["window_weeks"]["value"], "history": lapse["history_weeks"]["value"], "cap": lapse["z_cap"]["value"],
                       "ev": events, "l": ls, "z": zs}
@@ -97,9 +99,9 @@ def model_text(d):
     for i in range(n):
         if d["qmax"][i] < max(d["qmax"]):
             t += "    qcap%d: q[%d] <= %d;\n" % (i, i, d["qmax"][i])
-    if cold:
+    if cold and not d.get("no_room"):
         t += "    coldroom: " + " + ".join("pack[%d] * q[%d]" % (i, i) for i in cold) + " <= %d;\n" % d["room_cold"]
-    if warm:
+    if warm and not d.get("no_room"):
         t += "    shelfroom: " + " + ".join("pack[%d] * q[%d]" % (i, i) for i in warm) + " <= %d;\n" % d["room_shelf"]
     return t
 
@@ -110,8 +112,13 @@ def read(path):
 
 
 def main(argv):
-    only, lapse = None, None
-    while len(argv) >= 2 and argv[0] in ("--only", "--lapse"):
+    only, lapse, no_room = None, None, False
+    while argv and argv[0] in ("--only", "--lapse", "--no-room"):
+        if argv[0] == "--no-room":
+            no_room, argv = True, argv[1:]
+            continue
+        if len(argv) < 2:
+            break
         if argv[0] == "--only":
             only = argv[1]
         else:
@@ -150,7 +157,7 @@ def main(argv):
             if week not in epw:
                 epw[week] = events_per_week(os.path.join(data, "refills.csv"), week, lapse["history_weeks"]["value"])
             events = [epw[week].get((ph, i), 0.0) for i, _ in cs]
-        d = instance(its, [p for _, p in cs], stock, int(phs[ph]["cold_capacity_units"]), int(phs[ph]["shelf_capacity_units"]), costs, lapse, events)
+        d = instance(its, [p for _, p in cs], stock, int(phs[ph]["cold_capacity_units"]), int(phs[ph]["shelf_capacity_units"]), costs, lapse, events, no_room)
         d["week"], d["pharmacy"], d["items"] = week, ph, [i for i, _ in cs]
         base = os.path.join(out, "models", "W%d_%s" % (week, ph))
         with open(base + ".sol", "w", newline="\n") as f:

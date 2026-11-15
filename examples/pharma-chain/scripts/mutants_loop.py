@@ -30,6 +30,7 @@ MUTANTS = {
     "no-pack": ("C", "plan_decisions.py", '"units": d["pack"][i] * int(round(plan["x"]["q[%d]" % i]))', '"units": int(round(plan["x"]["q[%d]" % i]))', "orders not multiplied by the pack size"),
     "no-outreach-in-merge": ("B", "scripts/closed_loop.py", '            parts.append("b_dec.json")', "            pass", "arm B would equal D"),
     "lapse-flag-dropped": ("CL", "scripts/closed_loop.py", '(["--lapse", "lapse.json"] if lapse else [])', "[]", "arm CL would be arm C (G24: no lapse member)"),
+    "room-flag-dropped": ("CR", "scripts/closed_loop.py", '(["--no-room"] if no_room else [])', "[]", "arm CR would be arm C (G27: room rows in the model)"),
     "clock-in-decisions": ("B", "plan_decisions.py", 'doc = {"week": week}', 'doc = {"week": week, "clock": __import__("time").time()}', "a time in a decisions file (G22)"),
 }
 # the second edit of a mutant that needs two
@@ -88,7 +89,7 @@ def main(argv):
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
     base = pathlib.Path(arg("--out") or tempfile.mkdtemp(prefix="mutants_loop_"))
     base.mkdir(parents=True, exist_ok=True)
-    todo = [("control-" + a, None, a) for a in ("C", "B", "CL")] + [(n, n, MUTANTS[n][0]) for n in (names or MUTANTS)]
+    todo = [("control-" + a, None, a) for a in ("C", "B", "CL", "CR")] + [(n, n, MUTANTS[n][0]) for n in (names or MUTANTS)]
     if not names:
         pass
     results = {}
@@ -120,7 +121,7 @@ def main(argv):
                 print("%s: SURVIVED (%s)" % (label, MUTANTS[label][4]))
                 bad += 1
     print("mutants_loop: %d of %d mutants killed, controls %s" % (sum(1 for l, m, a in todo if m and (results[l][0] is not None or results[l][2] != 0)), sum(1 for l, m, a in todo if m),
-                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ("C", "B", "CL")) else "NOT CLEAN"))
+                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ("C", "B", "CL", "CR")) else "NOT CLEAN"))
     return 1 if bad else 0
 
 
