@@ -603,7 +603,7 @@ MUTANTS = [
     ("eleven-uniforms", "twinlib/prng.py", "for _ in range(12)", "for _ in range(11)", "normal"),
     ("dotdot-allowed", "twin.py", 'or ".." in out.replace("\\\\", "/").split("/")', "", "refusal"),
     ("streams-shared", "twinlib/prng.py", 'return SplitMix64(int.from_bytes(h[:8], "big"))', "return self", "independence"),
-    ("unknown-param-allowed", "twinlib/world.py", "if k not in PARAMS and k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS:", "if False:", "refusal"),
+    ("unknown-param-allowed", "twinlib/world.py", "if k not in PARAMS and k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS and k not in CAPACITY_PARAMS:", "if False:", "refusal"),
     ("python-random", "twinlib/core.py", '1 + r.below(p["regions"])', '1 + __import__("random").randrange(p["regions"])', "determinism"),
     ("poisson-mean-ignored", "twinlib/prng.py", "lam = Decimal(mean_milli) / Decimal(1000)", "lam = Decimal(3)", "poisson"),
     ("season-ignored", "twinlib/core.py", 'seas = season_ppm(week, p["season_peak_week"][g], p["season_amplitude_ppm"][g])', "seas = 1_000_000", "seasonal"),

@@ -245,7 +245,7 @@ MUTANTS = [
     ("coupling-not-passed-to-the-stock", "twinlib/step.py", _x('    flags = {"late": dw.late_weeks, "warm": dw.warm_weeks} if ', 'coupled else None'), '    flags = None if True else None', "G18"),
     ("stockout-window-off-by-one", "twinlib/step.py", _x('for x in range(max(0, W - window + 1), W ', '+ 1)))'), 'for x in range(max(0, W - window + 1), W)))', "G18"),
     ("orders-applied-a-week-late", "twinlib/step.py", _x('sim.step(W, dec[W]["orders"] if W in dec and dec[W]["orders"] else None)', ''), 'sim.step(W, dec[W - 1]["orders"] if (W - 1) in dec and dec[W - 1]["orders"] else None)', "G19"),
-    ("orders-ignored", "twinlib/core.py", _x('            if orders is not None and (phid, itid) in orders:\n                ordered = ', 'orders[(phid, itid)]'), '            if False:\n                ordered = orders[(phid, itid)]', "G19"),
+    ("orders-ignored", "twinlib/core.py", "            given = orders is not None and (phid, itid) in orders", "            given = False", "G19"),
     ("outreach-has-no-effect", "twinlib/step.py", _x('                if key in acts:\n                    chance = ', 'chance * (1_000_000 - uplift[acts[key]]) // 1_000_000'), '                if False:\n                    chance = chance', "G19"),
     ("charges-ignored", "twinlib/delivery.py", _x('            if available is not None and tr[0] in available and energy > ', 'available[tr[0]] * 1000:'), '            if False and energy > available[tr[0]] * 1000:', "G19"),
     ("decisions-of-the-same-week-for-outreach", "twinlib/step.py", _x('            acts = dec[W - 1]["outreach"] if (W - 1) in dec ', 'else {}'), '            acts = dec[W]["outreach"] if W in dec else {}', "G19"),
