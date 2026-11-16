@@ -32,7 +32,7 @@ MUTANTS = {  # name: (file, old text (once), new text, the mode whose gates are 
     "room-ignores-the-stock": (CORE_PY, "room = max(0, cap - sum(it[6] for it in its))", "room = max(0, cap)", 2),
     "classes-pooled": (CORE_PY, "groups.setdefault((c[8], cold), []).append(item)", "groups.setdefault((c[8], 0), []).append(item)", 2),
     "over-room-accepted": (CORE_PY, "            if given > room:", "            if False:", 2),
-    "tie-to-the-later-item": (CORE_PY, "                    return (-unmet, itid, k)", "                    return (-unmet, -int(itid[1:]), k)", 2),
+    "tie-to-the-later-item": (CORE_PY, "                    return (-unmet, itid, k)", "                    return (-unmet, -k, k)", 2),
     "smallest-unmet-first": (CORE_PY, "                    return (-unmet, itid, k)", "                    return (unmet, itid, k)", 2),
     "a-misfit-stops-the-allocation": (CORE_PY, "                    if pack > left:\n                        continue", "                    if pack > left:\n                        break", 2),
     "a-pack-over-the-room": (CORE_PY, "                    if pack > left:\n                        continue", "                    if left <= 0:\n                        continue", 2),

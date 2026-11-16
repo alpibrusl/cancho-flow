@@ -1,0 +1,7 @@
+STOP RULE seed 20261112: N1 stockout cell rate from week 52: 0.388 (at most 0.15); N2 the wants exceed the room in 0.114 of 2080 pharmacy-class-weeks from week 52 (at least 0.10); N3 cells with no sale from week 78: 0.435, without the limit 0.023 (at most that plus 0.02)
+STOP RULE FAILS: N1: the stockout cell rate is 0.388
+STOP RULE FAILS: N3: 0.435 of the cells have no sale from week 78 (without the limit 0.023)
+STOP RULE seed 1: N1 stockout cell rate from week 52: 0.471 (at most 0.15); N2 the wants exceed the room in 0.139 of 2080 pharmacy-class-weeks from week 52 (at least 0.10); N3 cells with no sale from week 78: 0.522, without the limit 0.021 (at most that plus 0.02)
+STOP RULE FAILS: N1: the stockout cell rate is 0.471
+STOP RULE FAILS: N3: 0.522 of the cells have no sale from week 78 (without the limit 0.021)
+experiment_cap: the stop rule or G34 failed; no arm was run, and the margins are not moved
