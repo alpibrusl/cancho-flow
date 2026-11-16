@@ -27,9 +27,24 @@ def figures_from_sources():
     m = re.search(r"\*\*([\d,]+) cases, all refused as `flow.record.damaged`", design)
     gates = (ROOT / "tests" / "gates.py").read_text()
     mut = (ROOT / "scripts" / "mutants.py").read_text()
+    uc = (ROOT / "docs" / "use-cases.md").read_text()
+    m_steps = re.search(r"(\d+) recorded `flow` steps: the large, coupled twin", uc)
+    m_secs = re.search(r"take \*\*([\d.]+) s at the minimum of five runs\*\*", uc)
+    m_py = re.search(r"`python3` [\d.]+ s \((\d+) percent\)", uc)
+    m_loop = re.search(r"\*\*Mutants of the loop: (\d+) of (\d+) killed\*\*", uc)
+    m_t = re.search(r"T has \*\*more lapses than D, by ([\d.]+) percent and ([\d.]+) percent\*\*", uc)
+    m_r = re.search(r"TLR has 0\.\d+ and 0\.\d+ of D's lapses, which is (\d+) and (\d+) percent fewer", uc)
+    m_b = re.search(r"B has ([\d.]+) and ([\d.]+) of D's lapses", uc) or re.search(r"B has (0\.\d+) and (0\.\d+) of D's lapses", uc)
+    twin = (ROOT / "examples" / "pharma-chain" / "scripts" / "check_twin.py").read_text()
+    block = twin.split("MUTANTS = [", 1)[1].split("\n]\n", 1)[0] if "MUTANTS = [" in twin else ""
+    uc_figs = {"uc_steps": m_steps.group(1) if m_steps else "?", "uc_seconds": m_secs.group(1) if m_secs else "?", "uc_python": m_py.group(1) if m_py else "?",
+               "uc_twin_mutants": str(len(re.findall(r'^    \("', block, re.M))),
+               "uc_loop_mutants": m_loop.group(1) if m_loop else "?", "uc_tlr_a": m_r.group(1) if m_r else "?", "uc_tlr_b": m_r.group(2) if m_r else "?", "uc_t_a": m_t.group(1) if m_t else "?", "uc_t_b": m_t.group(2) if m_t else "?",
+               "uc_b_a": str(round((1 - float(m_b.group(1))) * 100)) if m_b else "?", "uc_b_b": str(round((1 - float(m_b.group(2))) * 100)) if m_b else "?"}
     figs = {"damaged": m.group(1) if m else "?",
             "fixtures": str(sum(1 for l in gates.splitlines() if l.startswith('    f["'))),
             "mutants": str(sum(1 for l in mut.splitlines() if l.startswith("    (")))}
+    figs.update(uc_figs)
     return figs
 
 
@@ -208,7 +223,7 @@ BREAKS = {
     "wrong figure": lambda p: re.sub(r'(data-n="fixtures">)\d+', r"\g<1>99", p, count=1),
     "missing local file": lambda p: p.replace('href="assets/site.css"', 'href="assets/gone.css"', 1),
     "tab without panel": lambda p: p.replace('aria-controls="screen-stale"', 'aria-controls="screen-none"', 1),
-    "whole hash in a panel": lambda p: p.replace("62994be4a983…", "0" * 64, 1),
+    "whole hash in a panel": lambda p: re.sub(r"[0-9a-f]{12}…", "0" * 64, p, count=1),  # the first shown id, whatever it is
     "a timing shown": lambda p: p.replace("# exit status 5", '"milliseconds":12', 1),
     "oversize page": lambda p: p + "<!--" + "x" * 40000 + "-->",
 }

@@ -1,0 +1,6 @@
+U12 screen: capacity = lambda x the median class stock of the unlimited policy (weeks 52 and after), whole-pack cut, large twin, seed 20261112, the baseline policy only (a throwaway copy of the twin).
+lambda 1.0:  N1 0.421 (fails)  N2 0.208 (holds)  N3 0.486 vs 0.016 without the limit (fails)
+lambda 1.25: N1 0.257 (fails)  N2 0.136 (holds)  N3 0.294 vs 0.016 (fails)
+lambda 1.5:  N1 0.070 (holds)  N2 0.054 (fails)  N3 0.077 vs 0.016 (fails)
+lambda 2.0:  N1 0.016 (holds)  N2 0.000 (fails)  N3 0.016 vs 0.016 (holds)
+Footprint check: (stock - one pack of every item) / weekly volume, unlimited policy, weeks 60 to 100, both seeds: cold p50 -2.16, p90 -0.89, share below 0: 0.98; other items p50 -1.63, p90 -0.63, share below 0: 0.97.

@@ -1,0 +1,10 @@
+{
+  "schema": "charging.v1",
+  "note": "The overnight charging decision of docs/use-cases.md section 4.2 (U4c). Every value is a stylised choice of the example, not read from a depot.",
+  "pmax_kw": 11,
+  "chargers": 4,
+  "safety_kwh": 3.0,
+  "departure_hour": 31,
+  "need": "the predicted energy of the route plus the safety, in kWh, by the departure hour (07:00 the next day = hour 31 from the start of the day); a truck can draw from the hour after its last arrival",
+  "grid": "the depot file's cap_kw is what the warehouse leaves for charging; the tariff is the depot file's, in thousandths of a currency unit per kWh"
+}

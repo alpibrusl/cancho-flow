@@ -14,7 +14,7 @@ scripts/test_programs.sh >/dev/null
 export FLOW="$here/build/test/flow" FLOW_RECORDS="$here/build/test/flow-records" PROGRAMS="$here/build/test/programs"
 python3 tests/gates.py
 python3 scripts/mutants.py
-python3 scripts/site.py --check                        # the landing page's program output and figures are what the programs print
+python3 scripts/site.py --check                        # the landing page's program output and figures are what the programs print (the same bytes on every platform: scripts/site/digest does not depend on uniq's padding)
 python3 scripts/check_landing.py
 python3 scripts/check_landing.py --selftest            # and the checker can fail
 python3 scripts/check_contrast.py >/dev/null

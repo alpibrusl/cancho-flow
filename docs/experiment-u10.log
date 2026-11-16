@@ -1,0 +1,48 @@
+G21 B_1: 240 plans, 0 not verified, 8 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 B_1: flow-records check clean on all 1053 records of 1053 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G21 B_20261112: 240 plans, 0 not verified, 7 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 B_20261112: flow-records check clean on all 1053 records of 1053 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G32 C_1: the room of the model equals the world's room in 240 plans: all
+G30 C_1: 0 pharmacy-class-weeks order more than their room; the room binds in 1 of 4160
+G21 C_1: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 C_1: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G32 C_20261112: the room of the model equals the world's room in 240 plans: all
+G30 C_20261112: 0 pharmacy-class-weeks order more than their room; the room binds in 4 of 4160
+G21 C_20261112: 240 plans, 0 not verified, 0 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 C_20261112: flow-records check clean on all 1025 records of 1025 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G32 T_1: the room of the model equals the world's room in 240 plans: all
+G30 T_1: 0 pharmacy-class-weeks order more than their room; the room binds in 1 of 4160
+G21 T_1: 480 plans, 0 not verified, 10 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 T_1: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G32 T_20261112: the room of the model equals the world's room in 240 plans: all
+G30 T_20261112: 0 pharmacy-class-weeks order more than their room; the room binds in 4 of 4160
+G21 T_20261112: 480 plans, 0 not verified, 7 stopped at the node limit; decisions against plans: 0 weeks differ; models: fitted once on weeks up to 89
+G22 T_20261112: flow-records check clean on all 2052 records of 2052 steps (checked in the week of each); the last step's records clean afterwards: True; a changed byte of dispensing.csv: exit 5
+G23 seed 20261112: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+G23 seed 1: arms are what they claim (B's stock and all demand equal D's; no difference before week 90; the decisions files have the right parts)
+seed 20261112 arm D: orders 162090 units (weeks 90-101), stockout cells 22634, units short 161245, written off 1323, events 14558, lapses 1026 (weeks 91-103)
+seed 20261112 arm C: orders 170060 units (weeks 90-101), stockout cells 21063, units short 154906, written off 2453, events 14554, lapses 1023 (weeks 91-103)
+seed 20261112 arm B: orders 162090 units (weeks 90-101), stockout cells 22634, units short 161245, written off 1323, events 14717, lapses 789 (weeks 91-103)
+seed 20261112 arm T: orders 170060 units (weeks 90-101), stockout cells 21063, units short 154906, written off 2453, events 14717, lapses 787 (weeks 91-103)
+seed 1 arm D: orders 134610 units (weeks 90-101), stockout cells 27871, units short 215583, written off 1987, events 12178, lapses 822 (weeks 91-103)
+seed 1 arm C: orders 148710 units (weeks 90-101), stockout cells 25565, units short 203016, written off 3437, events 12178, lapses 815 (weeks 91-103)
+seed 1 arm B: orders 134610 units (weeks 90-101), stockout cells 27871, units short 215583, written off 1987, events 12317, lapses 634 (weeks 91-103)
+seed 1 arm T: orders 148710 units (weeks 90-101), stockout cells 25565, units short 203016, written off 3437, events 12316, lapses 634 (weeks 91-103)
+experiment: ok (the gates hold for arms C, B, T)
+G30 D2 seed 20261112: 0 violations; 0 cells differ from the recomputed policy; the room binds in 2 of 4160 pharmacy-class-weeks
+G30 D2 seed 1: 0 violations; 0 cells differ from the recomputed policy; the room binds in 0 of 4160 pharmacy-class-weeks
+CLAIM S1 (C2 has at most 1.00 of D2's stockout cells on critical items): seed 20261112: 0.727; seed 1: 0.656 -> holds on every seed
+CLAIM S2 (C2 has at most 1.10 of D2's stockout cells): seed 20261112: 0.931; seed 1: 0.917 -> holds on every seed
+CLAIM S3 (T2 has at most 1.00 of D2's lapses): seed 20261112: 0.767; seed 1: 0.771 -> holds on every seed
+CLAIM S4 (B2 has at most 0.90 of D2's lapses): seed 20261112: 0.769; seed 1: 0.771 -> holds on every seed
+seed 20261112 arm D: orders 306630 units (weeks 90-101), stockout cells 2763 (critical -, cold-chain -), units short 19488, written off 13723, events 24909, lapses 1500 (weeks 91-103)
+seed 20261112 arm D2: orders 162090 units (weeks 90-101), stockout cells 22634 (critical 4341, cold-chain 6826), units short 161245, written off 1323, events 14558, lapses 1026 (weeks 91-103)
+seed 20261112 arm C2: orders 170060 units (weeks 90-101), stockout cells 21063 (critical 3157, cold-chain 6254), units short 154906, written off 2453, events 14554, lapses 1023 (weeks 91-103)
+seed 20261112 arm B2: orders 162090 units (weeks 90-101), stockout cells 22634 (critical 4341, cold-chain 6826), units short 161245, written off 1323, events 14717, lapses 789 (weeks 91-103)
+seed 20261112 arm T2: orders 170060 units (weeks 90-101), stockout cells 21063 (critical 3157, cold-chain 6254), units short 154906, written off 2453, events 14717, lapses 787 (weeks 91-103)
+seed 1 arm D: orders 327850 units (weeks 90-101), stockout cells 2226 (critical -, cold-chain -), units short 15519, written off 12340, events 26311, lapses 1380 (weeks 91-103)
+seed 1 arm D2: orders 134610 units (weeks 90-101), stockout cells 27871 (critical 5222, cold-chain 5346), units short 215583, written off 1987, events 12178, lapses 822 (weeks 91-103)
+seed 1 arm C2: orders 148710 units (weeks 90-101), stockout cells 25565 (critical 3425, cold-chain 4899), units short 203016, written off 3437, events 12178, lapses 815 (weeks 91-103)
+seed 1 arm B2: orders 134610 units (weeks 90-101), stockout cells 27871 (critical 5222, cold-chain 5346), units short 215583, written off 1987, events 12317, lapses 634 (weeks 91-103)
+seed 1 arm T2: orders 148710 units (weeks 90-101), stockout cells 25565 (critical 3425, cold-chain 4899), units short 203016, written off 3437, events 12316, lapses 634 (weeks 91-103)
+experiment_cap: gates hold, 0 of 4 claims fail

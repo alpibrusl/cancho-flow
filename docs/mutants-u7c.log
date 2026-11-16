@@ -1,0 +1,10 @@
+control-C: clean (no problem reported), as a control must be
+control-B: clean (no problem reported), as a control must be
+wrong-week: KILLED, the run stopped: null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"stderr":{"bytes":203,"sha256":"4414
+pharmacy-swapped: KILLED by G21: C_20261112: 2 weeks of decisions differ from what their plans say
+refit-after-89: KILLED by G21: C_20261112: c_train.csv holds a week after 89
+actions-swapped: KILLED by G21: B_20261112: 2 weeks of decisions differ from what their plans say
+no-pack: KILLED, the run stopped: null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"stderr":{"bytes":168,"sha256":"b485
+no-outreach-in-merge: KILLED by G21: B_20261112: 2 weeks of decisions differ from what their plans say; G23: seed 20261112: arm B week 90: the decisions file has the wrong parts
+clock-in-decisions: KILLED, the run stopped: null,"timed_out":false,"truncated":{"stdout":false,"stderr":false},"stdout":{"bytes":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"stderr":{"bytes":203,"sha256":"4414
+mutants_loop: 7 of 7 mutants killed, controls clean

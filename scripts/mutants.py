@@ -60,7 +60,7 @@ MUTANTS = [
      "the standard input from a file is not recorded"),
     (BODY, "if cli.has(parsed, table, \"stdin\") && cli.has(parsed, table, \"stdin-file\") {", "if false && cli.has(parsed, table, \"stdin\") && cli.has(parsed, table, \"stdin-file\") {", ["G3"],
      "--stdin and --stdin-file together are accepted"),
-    (BODY, "} else if big {", "} else if false {", ["G12"],
+    (BODY, "} else if big {\n                e = fail.simple(heap, e, \"limit.input-too-large\", \"the --stdin-file", "} else if false {\n                e = fail.simple(heap, e, \"limit.input-too-large\", \"the --stdin-file", ["G12"],
      "a standard-input file above --max-stdin is accepted"),
     ("lib/flow/argvp.cho", "            seen = seen + 1;\n            from = i + 1;\n        }\n        i = i + 1;\n    }\n    return p[0..0];", "            seen = seen + 1;\n            from = i + 2;\n        }\n        i = i + 1;\n    }\n    return p[0..0];", ["G1", "G3", "G12", "G5"],
      "a packed argument after the first starts one byte late"),
@@ -78,7 +78,7 @@ MUTANTS = [
      "`when` may name a step that is not earlier"),
     (RUN, "|| !bytes.equal(step1, step2) || n1 != n2 {", "|| !bytes.equal(step1, step2) {", ["G13"],
      "exit 0 and exit_not 1 count as exclusive"),
-    (RUN, "return (kind1 == 1 && kind2 == 2) || (kind1 == 2 && kind2 == 1);", "return kind1 != kind2;", ["G13"],
+    (RUN, "return kind1 == 1 && kind2 == 2 || kind1 == 2 && kind2 == 1;", "return kind1 != kind2;", ["G13"],
      "a step with no condition counts as exclusive with one that has"),
     (RUN, "        if did_stop {\n            k = n;", "        if did_stop {\n            k = k + 1;", ["G14"],
      "the plan goes on after the first failure"),
@@ -96,7 +96,7 @@ MUTANTS = [
      "a step's own timeout is ignored"),
     (RUN, "if cut <= 0 || !bytes.equal(src[cut..cut + 10], \",\\\"check\\\":\\\"\") || !bytes.equal(src[cut + 74..len(src)], \"\\\"}\\n\") {", "if cut <= 0 || !bytes.equal(src[cut..cut + 10], \",\\\"check\\\":\\\"\") {", ["G16"],
      "bytes after the check of a plan record are not compared"),
-    (PLAN, "    } else if (seen / pow2(m)) % 2 == 1 {", "    } else if false && (seen / pow2(m)) % 2 == 1 {", ["G13"],
+    (PLAN, "    } else if seen / pow2(m) % 2 == 1 {", "    } else if false && seen / pow2(m) % 2 == 1 {", ["G13"],
      "a member given twice is accepted"),
     (PLAN, "                if has_byte(b, 0) {", "                if false && has_byte(b, 0) {", ["G13"],
      "a zero byte in an argument is accepted"),
@@ -179,7 +179,7 @@ def main():
                 build(tree, "flow", flow)
                 build(tree, "flow-records", records)
             env.update(FLOW=flow, FLOW_RECORDS=records)
-            r = subprocess.run([sys.executable, str(ROOT / "tests" / "gates.py")] + gates, env=env, capture_output=True, text=True)
+            r = subprocess.run([sys.executable, str(ROOT / "tests" / "gates.py")] + gates, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
             killed = r.returncode != 0
             if not killed and what in EXPLAINED:
                 print("explained mutant %2d: %s   (%s)" % (n, what, EXPLAINED[what]))

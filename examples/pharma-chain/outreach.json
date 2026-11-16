@@ -1,0 +1,10 @@
+{
+  "schema": "outreach.v1",
+  "note": "The outreach decision of docs/use-cases.md section 4.3 step 4. Every value is a stylised choice of the example, not read from a pharmacy. The uplift is the fraction by which an outreach lowers the lapse probability of an event; the planner is GIVEN it (a stated limitation) and the evaluation uses the same numbers as the twin's own effect.",
+  "actions": ["call", "reminder", "switch90", "delivery"],
+  "uplift":  {"call": 0.25, "reminder": 0.08, "switch90": 0.30, "delivery": 0.20},
+  "minutes": {"call": 6.0, "reminder": 0.5, "switch90": 3.0, "delivery": 1.0},
+  "money":   {"call": 4.0, "reminder": 0.3, "switch90": 1.5, "delivery": 5.0},
+  "capacity_per_pharmacy_week": {"minutes": 150.0, "money": 300.0, "delivery_slots": 10},
+  "value": "avoided lapse probability (p times uplift) times the days that refill covers (the patient's refill interval)"
+}
