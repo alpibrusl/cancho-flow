@@ -31,6 +31,7 @@ MUTANTS = {
     "no-outreach-in-merge": ("B", "scripts/closed_loop.py", '            parts.append("b_dec.json")', "            pass", "arm B would equal D"),
     "lapse-flag-dropped": ("CL", "scripts/closed_loop.py", '(["--lapse", "lapse.json"] if lapse else [])', "[]", "arm CL would be arm C (G24: no lapse member)"),
     "room-flag-dropped": ("CR", "scripts/closed_loop.py", '(["--no-room"] if no_room else [])', "[]", "arm CR would be arm C (G27: room rows in the model)"),
+    "enforce-flag-dropped": ("C+", "scripts/closed_loop.py", "prep(fl, seed, arm, enforce)", "prep(fl, seed, arm, False)", "arm C2 would run in the world without the limits (G23: it differs from D2 before week 90)"),
     "clock-in-decisions": ("B", "plan_decisions.py", 'doc = {"week": week}', 'doc = {"week": week, "clock": __import__("time").time()}', "a time in a decisions file (G22)"),
 }
 # the second edit of a mutant that needs two
@@ -52,17 +53,19 @@ def apply(root, name):
         p.write_text(t.replace(old, new))
 
 
-def run(name, arm, work, dpath, py):
+def run(name, arm, work, dpath, py, d2=None):
     """Run one arm from a (mutated) copy; return (stopped_text or None, judge_output, judge_rc)."""
     root = pathlib.Path(work) / "tree"
     copy_tree(root)
     if name:
         apply(root, name)
+    plus = arm.endswith("+")  # U10: the arm runs in the world with the space limits, against D2
+    arm = arm.rstrip("+")
     out = pathlib.Path(work) / "out"
     (out / ("D_%d" % SEED)).mkdir(parents=True)
-    os.symlink(os.path.abspath(dpath), out / ("D_%d" % SEED) / "data")
+    os.symlink(os.path.abspath(d2 if plus else dpath), out / ("D_%d" % SEED) / "data")
     env = dict(os.environ, FLOW_REPO=str(REPO), FLOW_TIMEOUT_MS="600000")
-    r = subprocess.run([sys.executable, str(root / "scripts" / "closed_loop.py"), "--arm", arm, "--seed", str(SEED), "--out", str(out / ("%s_%d" % (arm, SEED))), "--first", str(FIRST), "--last", str(LAST), "--end", str(END)],
+    r = subprocess.run([sys.executable, str(root / "scripts" / "closed_loop.py"), "--arm", arm, "--seed", str(SEED), "--out", str(out / ("%s_%d" % (arm, SEED))), "--first", str(FIRST), "--last", str(LAST), "--end", str(END)] + (["--enforce"] if plus else []),
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
         import re
@@ -80,7 +83,8 @@ def main(argv):
     if not dpath:
         sys.stderr.write("mutants_loop.py --d DIR_WITH_D_DATA [--out DIR] [name ...]\n")
         return 2
-    skip = {arg("--d"), arg("--out")}
+    d2 = arg("--d2")
+    skip = {arg("--d"), arg("--out"), d2}
     names = [a for a in argv if not a.startswith("--") and a not in skip]
     for n in names:
         if n not in MUTANTS:
@@ -89,7 +93,9 @@ def main(argv):
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
     base = pathlib.Path(arg("--out") or tempfile.mkdtemp(prefix="mutants_loop_"))
     base.mkdir(parents=True, exist_ok=True)
-    todo = [("control-" + a, None, a) for a in ("C", "B", "CL", "CR")] + [(n, n, MUTANTS[n][0]) for n in (names or MUTANTS)]
+    chosen = names or list(MUTANTS)
+    ctl = sorted({MUTANTS[n][0] for n in chosen})  # a control for each arm a chosen mutant runs
+    todo = [("control-" + a, None, a) for a in ctl] + [(n, n, MUTANTS[n][0]) for n in chosen]
     if not names:
         pass
     results = {}
@@ -100,7 +106,7 @@ def main(argv):
         if w.exists():
             shutil.rmtree(w)
         w.mkdir()
-        return label, run(mut, arm, w, dpath, py)
+        return label, run(mut, arm, w, dpath, py, d2)
     with ThreadPoolExecutor(max_workers=4) as ex:
         for label, res in ex.map(job, todo):
             results[label] = res
@@ -121,7 +127,7 @@ def main(argv):
                 print("%s: SURVIVED (%s)" % (label, MUTANTS[label][4]))
                 bad += 1
     print("mutants_loop: %d of %d mutants killed, controls %s" % (sum(1 for l, m, a in todo if m and (results[l][0] is not None or results[l][2] != 0)), sum(1 for l, m, a in todo if m),
-                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ("C", "B", "CL", "CR")) else "NOT CLEAN"))
+                                                              "clean" if all(results["control-" + a][0] is None and results["control-" + a][2] == 0 for a in ctl) else "NOT CLEAN"))
     return 1 if bad else 0
 
 

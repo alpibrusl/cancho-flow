@@ -95,7 +95,7 @@ def main(argv):
     return judge(seeds, base, first, last, end)
 
 
-def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True):
+def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True, hook=None):
     problems, report = [], []
     py = os.environ.get("SCIPY_PYTHON", sys.executable)
     res = {}
@@ -166,6 +166,10 @@ def judge(seeds, base, first, last, end, arms=("C", "B", "T"), with_claims=True)
                 fj = json.loads((root / fitj).read_text())["data"]
                 if hashlib.sha256((root / mfile).read_bytes()).hexdigest() != fj["sha256"]:
                     leak.append("%s is not the model its fit printed" % mfile)
+        if hook is not None and (root / "c" / "models").exists():  # an extra per-arm check: hook(name, root) -> (report lines, problems)
+            r_, p_ = hook(name, root)
+            report.extend(r_)
+            problems.extend(p_)
         if name[:2] in ("CL", "TL"):  # U8: G24 on every plan, from the arm's final tables
             import check_lapse
             costs_, lapse_ = json.loads((HERE / "costs.json").read_text()), json.loads((HERE / "lapse.json").read_text())

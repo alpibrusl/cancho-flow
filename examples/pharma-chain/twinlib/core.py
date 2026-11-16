@@ -52,9 +52,12 @@ class StockSim:
                 self.cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0], 0, it[2]])
         self.disp, self.truth = [], []
         self.sold_out = self.wasted = self.sold_total = self.demand_total = 0
+        self.enforce = bool(p.get("enforce_capacity", 0))  # U10: the space limits (the shelf and cold capacities of pharmacies.csv) bind the orders
+        self.caps = {ph[0]: (ph[2], ph[3]) for ph in pharmacies}
 
     def step(self, week, orders=None):
         p, flags, rd = self.p, self.flags, self.rd
+        pend = []
         for c in self.cells:
             lots, pending, hist, b, g, pack, shelf_weeks, scale, phid, itid, held, cold = c
             arriving = pending + held
@@ -92,15 +95,45 @@ class StockSim:
             target = -(-p["order_cover_ppm"] * sum(recent) // (1_000_000 * len(recent)))
             want = max(0, target - stock_end)
             ordered = -(-want // pack) * pack if want else 0
-            if orders is not None and (phid, itid) in orders:
+            given = orders is not None and (phid, itid) in orders
+            default = ordered
+            if given:
                 ordered = orders[(phid, itid)]
             c[1] = ordered
+            if self.enforce:
+                pend.append((len(self.disp), c, pack, default, given, cold, stock_end))
             self.disp.append((phid, itid, week, stock_start, received, written_off, sold, int(demand > stock_start), stock_end, ordered))
             self.truth.append((phid, itid, week, demand, mean_milli(b, scale, seas)))
             self.sold_out += demand > stock_start
             self.wasted += written_off
             self.sold_total += sold
             self.demand_total += demand
+        if self.enforce:
+            self._limit(week, pend)
+
+    def _limit(self, week, pend):
+        """The space limits (U10): for each pharmacy and class the room is max(0, capacity - the stock at the end of the week); the orders given by a decision must fit in it (else twin.decision-over-room), and the orders of the
+        policy are what is left of the room, cut in proportion when they do not fit (each order times the room over the total, rounded down to whole packs)."""
+        groups = {}
+        for item in pend:
+            c, cold = item[1], item[5]
+            groups.setdefault((c[8], cold), []).append(item)
+        for (phid, cold), its in groups.items():
+            cap = self.caps[phid][1 if cold else 0]
+            room = max(0, cap - sum(it[6] for it in its))
+            given = sum(it[1][1] for it in its if it[4])
+            if given > room:
+                from .world import TwinError
+                raise TwinError("twin.decision-over-room", "the orders of week %d for %s (%s items) are %d units, above the %d units of room that its stock leaves" % (week, phid, "cold-chain" if cold else "other", given, room), "order no more than the room")
+            left = room - given
+            total = sum(it[3] for it in its if not it[4])
+            if total > left:
+                for idx, c, pack, default, was_given, _cold, _se in its:
+                    if was_given:
+                        continue
+                    ordered = (default * left // total) // pack * pack
+                    c[1] = ordered
+                    self.disp[idx] = self.disp[idx][:-1] + (ordered,)
 
     def counts(self):
         return {"stockout_cells": self.sold_out, "written_off_units": self.wasted, "units_sold": self.sold_total, "units_demanded": self.demand_total}

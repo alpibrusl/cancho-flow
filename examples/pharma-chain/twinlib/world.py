@@ -81,6 +81,12 @@ OUTREACH_PARAMS = {
 }
 
 
+# the space limits of the pharmacies (U10): 0 or 1, optional; absent means 0, and then nothing of the twin's output changes. With 1 the orders of a pharmacy in one class (cold-chain, other) are at most the room that its stock leaves
+CAPACITY_PARAMS = {
+    "enforce_capacity": "flag",
+}
+
+
 def _int(x):
     return isinstance(x, int) and not isinstance(x, bool)
 
@@ -102,6 +108,8 @@ def _check_value(name, kind, v):
         ok = _int(v) and 1 <= v <= 1_000_000
     elif kind == "uplift4":
         ok = isinstance(v, list) and len(v) == 4 and all(_int(x) and 0 <= x <= 1_000_000 for x in v)
+    elif kind == "flag":
+        ok = _int(v) and v in (0, 1)
     elif kind == "week52":
         ok = _int(v) and 0 <= v <= 51
     elif kind == "hourly24":
@@ -141,13 +149,14 @@ def parse(text):
     if not isinstance(params, dict):
         raise TwinError("twin.bad-world", "the world has no params")
     for k in params:
-        if k not in PARAMS and k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS:
-            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS) + sorted(DELIVERY_PARAMS) + sorted(OUTREACH_PARAMS)))
+        if k not in PARAMS and k not in DELIVERY_PARAMS and k not in OUTREACH_PARAMS and k not in CAPACITY_PARAMS:
+            raise TwinError("twin.unknown-param", "unknown parameter %s" % k, "the parameters are: " + ", ".join(sorted(PARAMS) + sorted(DELIVERY_PARAMS) + sorted(OUTREACH_PARAMS) + sorted(CAPACITY_PARAMS)))
     present = [k for k in DELIVERY_PARAMS if k in params]
     if present and len(present) != len(DELIVERY_PARAMS):
         raise TwinError("twin.missing-param", "the delivery parameters are all or none: %s is missing" % next(k for k in DELIVERY_PARAMS if k not in params), "add every delivery parameter or none")
     present_o = [k for k in OUTREACH_PARAMS if k in params]
-    for k, kind in list(PARAMS.items()) + [(k, DELIVERY_PARAMS[k]) for k in present] + [(k, OUTREACH_PARAMS[k]) for k in present_o]:
+    present_c = [k for k in CAPACITY_PARAMS if k in params]
+    for k, kind in list(PARAMS.items()) + [(k, DELIVERY_PARAMS[k]) for k in present] + [(k, OUTREACH_PARAMS[k]) for k in present_o] + [(k, CAPACITY_PARAMS[k]) for k in present_c]:
         if k not in params:
             raise TwinError("twin.missing-param", "parameter %s is missing" % k, "add %s to the world file" % k)
         e = params[k]
