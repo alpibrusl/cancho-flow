@@ -81,9 +81,10 @@ OUTREACH_PARAMS = {
 }
 
 
-# the space limits of the pharmacies (U10): 0 or 1, optional; absent means 0, and then nothing of the twin's output changes. With 1 the orders of a pharmacy in one class (cold-chain, other) are at most the room that its stock leaves
+# the space limits of the pharmacies (U10, U11): 0, 1 or 2, optional; absent means 0, and then nothing of the twin's output changes. With 1 or 2 the orders of a pharmacy in one class (cold-chain, other) are at most the room that its
+# stock leaves; when the policy wants more than the room, 1 cuts every order in proportion (rounded down to whole packs: U10's rule) and 2 gives whole packs to the item with the largest unmet want (U11)
 CAPACITY_PARAMS = {
-    "enforce_capacity": "flag",
+    "enforce_capacity": "mode3",
 }
 
 
@@ -108,8 +109,8 @@ def _check_value(name, kind, v):
         ok = _int(v) and 1 <= v <= 1_000_000
     elif kind == "uplift4":
         ok = isinstance(v, list) and len(v) == 4 and all(_int(x) and 0 <= x <= 1_000_000 for x in v)
-    elif kind == "flag":
-        ok = _int(v) and v in (0, 1)
+    elif kind == "mode3":
+        ok = _int(v) and v in (0, 1, 2)
     elif kind == "week52":
         ok = _int(v) and 0 <= v <= 51
     elif kind == "hourly24":

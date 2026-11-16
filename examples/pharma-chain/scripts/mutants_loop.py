@@ -32,6 +32,7 @@ MUTANTS = {
     "lapse-flag-dropped": ("CL", "scripts/closed_loop.py", '(["--lapse", "lapse.json"] if lapse else [])', "[]", "arm CL would be arm C (G24: no lapse member)"),
     "room-flag-dropped": ("CR", "scripts/closed_loop.py", '(["--no-room"] if no_room else [])', "[]", "arm CR would be arm C (G27: room rows in the model)"),
     "enforce-flag-dropped": ("C+", "scripts/closed_loop.py", "prep(fl, seed, arm, enforce)", "prep(fl, seed, arm, False)", "arm C2 would run in the world without the limits (G23: it differs from D2 before week 90)"),
+    "enforce-mode-1-where-2": ("C+", "scripts/closed_loop.py", '"value": enforce,', '"value": 1,', "arm C2' would run U10's rule where D2' has U11's (G23: it differs from D2' before week 90)"),
     "clock-in-decisions": ("B", "plan_decisions.py", 'doc = {"week": week}', 'doc = {"week": week, "clock": __import__("time").time()}', "a time in a decisions file (G22)"),
 }
 # the second edit of a mutant that needs two
@@ -65,7 +66,7 @@ def run(name, arm, work, dpath, py, d2=None):
     (out / ("D_%d" % SEED)).mkdir(parents=True)
     os.symlink(os.path.abspath(d2 if plus else dpath), out / ("D_%d" % SEED) / "data")
     env = dict(os.environ, FLOW_REPO=str(REPO), FLOW_TIMEOUT_MS="600000")
-    r = subprocess.run([sys.executable, str(root / "scripts" / "closed_loop.py"), "--arm", arm, "--seed", str(SEED), "--out", str(out / ("%s_%d" % (arm, SEED))), "--first", str(FIRST), "--last", str(LAST), "--end", str(END)] + (["--enforce"] if plus else []),
+    r = subprocess.run([sys.executable, str(root / "scripts" / "closed_loop.py"), "--arm", arm, "--seed", str(SEED), "--out", str(out / ("%s_%d" % (arm, SEED))), "--first", str(FIRST), "--last", str(LAST), "--end", str(END)] + (["--enforce", "2"] if plus else []),
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
         import re

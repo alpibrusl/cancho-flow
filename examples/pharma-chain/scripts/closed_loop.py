@@ -59,13 +59,13 @@ def check_records(fl, name):
     fl.checked = getattr(fl, "checked", 0) + len(list((fl.root / fl.rec).iterdir()))
 
 
-def prep(fl, seed, arm, enforce=False):
+def prep(fl, seed, arm, enforce=0):
     """The models, fitted once on the world through week 89."""
     pa.world(fl, "main", None)
     if enforce:  # U10: the space limits of the pharmacies bind their orders
         wp = fl.root / "world_main.json"
         w = json.loads(wp.read_text())
-        w["params"]["enforce_capacity"] = {"value": 1, "source": "choice", "note": "the space limits of the pharmacies bind their orders (U10)"}
+        w["params"]["enforce_capacity"] = {"value": enforce, "source": "choice", "note": "the space limits of the pharmacies bind their orders (U10, U11)"}
         wp.write_text(json.dumps(w))
     twin_step(fl, seed, FIT_THROUGH, [])
     if arm[0] in ("C", "T"):
@@ -112,7 +112,7 @@ def decide_b(fl, w):
     fl.step(["plan_decisions.py"] + ["b/models/W%d_%s.%s" % (w + 1, ph, e) for ph in phs for e in ("json", "plan.json")], ["b_dec.json"], ["python3", "plan_decisions.py", "b", str(w), ".", "b_dec.json"])
 
 
-def run_arm(arm, seed, out, first=90, last=101, end=103, enforce=False):
+def run_arm(arm, seed, out, first=90, last=101, end=103, enforce=0):
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
     fl = pc.Flow(out)
@@ -151,9 +151,9 @@ def main(argv):
         return argv[argv.index(name) + 1] if name in argv else default
     arm, seed, out = arg("--arm"), arg("--seed"), arg("--out")
     if arm not in ("C", "B", "T", "CL", "TL", "CR", "CLR", "TLR") or not seed or not out:
-        sys.stderr.write("closed_loop.py --arm C|B|T|CL|TL|CR|CLR|TLR --seed N --out DIR [--first 90 --last 101 --end 103] [--enforce]\n")
+        sys.stderr.write("closed_loop.py --arm C|B|T|CL|TL|CR|CLR|TLR --seed N --out DIR [--first 90 --last 101 --end 103] [--enforce MODE]\n")
         return 2
-    run_arm(arm, int(seed), out, int(arg("--first", 90)), int(arg("--last", 101)), int(arg("--end", 103)), "--enforce" in argv)
+    run_arm(arm, int(seed), out, int(arg("--first", 90)), int(arg("--last", 101)), int(arg("--end", 103)), int(arg("--enforce", 0)))
     return 0
 
 

@@ -52,7 +52,7 @@ class StockSim:
                 self.cells.append([[[shelf_weeks, m0 * 2 // 1000 + 1]], 0, [], b, gi[it[0]], it[5], shelf_weeks, ph[4], ph[0], it[0], 0, it[2]])
         self.disp, self.truth = [], []
         self.sold_out = self.wasted = self.sold_total = self.demand_total = 0
-        self.enforce = bool(p.get("enforce_capacity", 0))  # U10: the space limits (the shelf and cold capacities of pharmacies.csv) bind the orders
+        self.enforce = p.get("enforce_capacity", 0)  # U10, U11: the space limits (the shelf and cold capacities of pharmacies.csv) bind the orders; 1 cuts in proportion, 2 allocates whole packs
         self.caps = {ph[0]: (ph[2], ph[3]) for ph in pharmacies}
 
     def step(self, week, orders=None):
@@ -112,8 +112,9 @@ class StockSim:
             self._limit(week, pend)
 
     def _limit(self, week, pend):
-        """The space limits (U10): for each pharmacy and class the room is max(0, capacity - the stock at the end of the week); the orders given by a decision must fit in it (else twin.decision-over-room), and the orders of the
-        policy are what is left of the room, cut in proportion when they do not fit (each order times the room over the total, rounded down to whole packs)."""
+        """The space limits (U10, U11): for each pharmacy and class the room is max(0, capacity - the stock at the end of the week); the orders given by a decision must fit in it (else twin.decision-over-room), and the orders of the
+        policy are what is left of the room, cut when they do not fit: mode 1 in proportion (each order times the room over the total, rounded down to whole packs), mode 2 by whole packs given one at a time to the item with the
+        largest unmet want (ties: the smaller item identifier), an item whose pack no longer fits being passed over."""
         groups = {}
         for item in pend:
             c, cold = item[1], item[5]
@@ -127,7 +128,30 @@ class StockSim:
                 raise TwinError("twin.decision-over-room", "the orders of week %d for %s (%s items) are %d units, above the %d units of room that its stock leaves" % (week, phid, "cold-chain" if cold else "other", given, room), "order no more than the room")
             left = room - given
             total = sum(it[3] for it in its if not it[4])
-            if total > left:
+            if total > left and self.enforce == 2:
+                import heapq
+
+                def entry(unmet, itid, k):
+                    return (-unmet, itid, k)
+                alloc = [0] * len(its)
+                heap = [entry(it[3], it[1][9], k) for k, it in enumerate(its) if not it[4] and it[3] > 0]
+                heapq.heapify(heap)
+                while heap:
+                    _neg, itid, k = heapq.heappop(heap)
+                    pack = its[k][2]
+                    if pack > left:
+                        continue
+                    alloc[k] += pack
+                    left -= pack
+                    unmet = its[k][3] - alloc[k]
+                    if unmet > 0:
+                        heapq.heappush(heap, entry(unmet, itid, k))
+                for k, (idx, c, pack, default, was_given, _cold, _se) in enumerate(its):
+                    if was_given:
+                        continue
+                    c[1] = alloc[k]
+                    self.disp[idx] = self.disp[idx][:-1] + (alloc[k],)
+            elif total > left:
                 for idx, c, pack, default, was_given, _cold, _se in its:
                     if was_given:
                         continue
