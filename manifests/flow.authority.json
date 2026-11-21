@@ -197,12 +197,15 @@
     "guarantees_has",
     "has",
     "has_byte",
+    "has_control",
     "has_dotdot",
     "has_text",
     "hex4",
     "hex_digit",
     "hex_digit",
     "hex_digit",
+    "hex_digit",
+    "hex_value",
     "hex_value",
     "id_of",
     "in_choice",
@@ -335,5 +338,5 @@
     "width_of",
     "wrong_type"
   ],
-  "functions": 416
+  "functions": 421
 }
