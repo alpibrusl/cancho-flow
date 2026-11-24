@@ -34,7 +34,8 @@
     {
       "name": "fs_read",
       "argument": "",
-      "bounded": true
+      "bounded": true,
+      "confinement": "lexical"
     },
     {
       "name": "heap",
